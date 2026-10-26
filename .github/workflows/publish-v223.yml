@@ -1,0 +1,48 @@
+name: Publish Muhammad Robot v2.2.3 updater fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v223.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect existing v2.2.3 release
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v2.2.3 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Download verified v2.2.2 baseline
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p baseline dist
+          gh release download v2.2.2 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.2.zip' --dir baseline
+      - name: Build and verify v2.2.3
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          python scripts/build_v223.py baseline/MuhammadRobot-2.2.2.zip dist/MuhammadRobot-2.2.3.zip
+      - name: Publish v2.2.3 GitHub Release
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v2.2.3 dist/MuhammadRobot-2.2.3.zip dist/manifest.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --title 'Muhammad Robot v2.2.3 - GitHub Update Fix' \
+            --notes 'Fixes HTTP 415 on GitHub releases/latest by requesting JSON metadata. No changes to voice commands, animations, Python Studio, or personal code.' \
+            --latest
