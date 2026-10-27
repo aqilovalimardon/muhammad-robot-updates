@@ -1,0 +1,38 @@
+name: Inspect v2.2.11 archive validator failure
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-v2211-archive.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect exact validator code and published archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/audit
+          gh release download v2.2.10 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.10.zip' --dir /tmp/audit
+          gh release download v2.2.11 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.11.zip' --dir /tmp/audit
+          python3 - <<'PY'
+          import zipfile
+          old='/tmp/audit/MuhammadRobot-2.2.10.zip'
+          new='/tmp/audit/MuhammadRobot-2.2.11.zip'
+          with zipfile.ZipFile(old) as z:
+            src=z.read('app/robot_core.py').decode()
+          i=src.index('def inspect_release(')
+          print('=== VALIDATION ===')
+          print(src[i:i+5500])
+          a=src.index('def install_release(')
+          print('=== INSTALLER ===')
+          print(src[a:a+4500])
+          with zipfile.ZipFile(old) as o,zipfile.ZipFile(new) as n:
+            oldset=set(o.namelist());newset=set(n.namelist())
+            print('OLD',len(oldset),'NEW',len(newset),'ADDED',len(newset-oldset),'REMOVED',len(oldset-newset))
+            print('ADDED SAMPLES',sorted(newset-oldset)[:16])
+            print('BASELINE FILES',sorted(oldset)[:35])
+          PY
