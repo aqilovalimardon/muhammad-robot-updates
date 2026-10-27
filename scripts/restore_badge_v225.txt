@@ -1,0 +1,63 @@
+    def _show_restore_orb(self):
+        """Tiny round, transparent desktop badge whose pupils follow the mouse.
+
+        Always remains clickable even without a microphone or network.
+        Updates stop automatically when the full robot reappears.
+        """
+        if self.orb and self.orb.winfo_exists():
+            return
+        self.orb=tk.Toplevel(self.root)
+        self.orb.title('Restore Muhammad Robot')
+        self.orb.overrideredirect(True)
+        self.orb.attributes('-topmost',True)
+        self.orb.configure(bg=TRANSPARENT)
+        if sys.platform=='win32':
+            try:self.orb.wm_attributes('-transparentcolor',TRANSPARENT)
+            except tk.TclError:pass
+        # Lower-left corner; leave clearance for the Windows taskbar.
+        sh=self.root.winfo_screenheight()
+        self.orb.geometry(f'44x44+16+{max(8,sh-110)}')
+        self.orb_canvas=tk.Canvas(self.orb,width=44,height=44,bg=TRANSPARENT,
+                                  bd=0,highlightthickness=0,cursor='hand2')
+        self.orb_canvas.pack(fill='both',expand=True)
+        c=self.orb_canvas
+        # Nothing rectangular is painted: the key color is fully transparent.
+        self.orb_ring=c.create_oval(3,3,41,41,fill='#071c33',
+                                    outline='#168fc4',width=2)
+        c.create_oval(7,7,37,37,fill='#0a2c4a',outline='#1a597d',width=1)
+        self.orb_pupils=[]
+        for cx in (15,29):
+            c.create_oval(cx-5,16,cx+5,26,fill='#b3f4ff',outline='#50c8ef',width=1)
+            self.orb_pupils.append(c.create_oval(cx-2,19,cx+2,23,
+                                                  fill='#082b45',outline=''))
+        c.bind('<Button-1>',lambda event:self.restore())
+        c.bind('<Button-3>',lambda event:self.restore())
+        self._orb_track_eyes()
+
+    def _orb_track_eyes(self):
+        """60 ms tick while hidden; pupils shift at most 2.8 pixels.
+
+        A pointer outside the 180 px neighborhood resets eyes to neutral.
+        No external modules, threads, hooks or global mouse listeners.
+        """
+        if not self.minimized or not self.orb or not self.orb.winfo_exists():
+            return
+        try:
+            mx,my=self.orb.winfo_pointerxy()
+            dx=mx-(self.orb.winfo_rootx()+22)
+            dy=my-(self.orb.winfo_rooty()+22)
+            dist=math.hypot(dx,dy)
+            strength=max(0.0,min(1.0,(180.0-dist)/140.0))
+            shift=2.8*strength/max(1.0,dist)
+            ox,oy=dx*shift,dy*shift
+            for pupil,cx in zip(self.orb_pupils,(15,29)):
+                self.orb_canvas.coords(pupil,cx-2+ox,19+oy,cx+2+ox,23+oy)
+            self.orb_canvas.itemconfigure(self.orb_ring,
+                outline='#61e8ff' if dist<75 else '#168fc4')
+        except tk.TclError:
+            return
+        try:
+            self.orb.after(60,self._orb_track_eyes)
+        except tk.TclError:
+            pass
+
