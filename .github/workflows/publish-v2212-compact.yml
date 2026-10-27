@@ -1,0 +1,60 @@
+name: Publish Muhammad Robot v2.2.12 — ZIP safety compatibility fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v2212-compact.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check no duplicate release
+        id: exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v2.2.12 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'found=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'found=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Download exact v2.2.11 and deployed validator from v2.2.10
+        if: steps.exists.outputs.found == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p baseline dist
+          gh release download v2.2.11 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.11.zip' --dir baseline
+          gh release download v2.2.10 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.10.zip' --dir baseline
+      - name: Build compact package without weakening updater security
+        if: steps.exists.outputs.found == 'false'
+        run: |
+          python3 scripts/build_v2212_compact.py baseline/MuhammadRobot-2.2.11.zip dist/MuhammadRobot-2.2.12.zip
+      - name: Install GUI test prerequisites
+        if: steps.exists.outputs.found == 'false'
+        run: |
+          python3 -m pip install --user Pillow
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends python3-tk xvfb
+      - name: Verify using current on-device ZIP security checker and Tk animations
+        if: steps.exists.outputs.found == 'false'
+        run: |
+          xvfb-run -a python3 scripts/test_v2212_compact.py baseline/MuhammadRobot-2.2.10.zip dist/MuhammadRobot-2.2.12.zip
+          xvfb-run -a python3 scripts/test_badge_v225.py dist/MuhammadRobot-2.2.12.zip
+      - name: Publish ONLY after deployed validator and visual checks pass
+        if: steps.exists.outputs.found == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v2.2.12 dist/MuhammadRobot-2.2.12.zip dist/manifest.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --title 'Muhammad Robot v2.2.12 — Living Mini Cream Update Fix' \
+            --notes 'Fixes Invalid archive entries on v2.2.11 by reducing 184 ZIP entries to 84 while preserving nine gaze expressions (eight lightweight frames each), eight original cream frames as a classic rollback, a translucent belly menu with Run Python, audio commands, the editor, and mouse-driven motion. Release validated by the EXACT v2.2.10 on-device inspect_release() security checks: no limit bypass or manual reinstall required.' \
+            --latest
