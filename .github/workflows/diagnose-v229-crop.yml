@@ -1,0 +1,30 @@
+name: Diagnose crop and disconnected button in 2.2.9
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/diagnose-v229-crop.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect actual published app positioning
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/r229
+          gh release download v2.2.9 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.9.zip' --dir /tmp/r229
+          python3 - <<'PY'
+          import zipfile
+          z=zipfile.ZipFile('/tmp/r229/MuhammadRobot-2.2.9.zip')
+          s=z.read('app/robot_app.py').decode('utf-8').splitlines()
+          for i,line in enumerate(s):
+              if (line.startswith('    def animate(') or line.startswith('    def minimize(')
+                  or line.startswith('    def restore(') or line.startswith('    def _finish_restore(')
+                  or line.startswith('    def _show_aqua_menu(') or line.startswith('    def __init__(self):') and i>200):
+                  print('=== LINES',i+1,'to',min(i+65,len(s)),'===')
+                  for j in range(i,min(i+65,len(s))):print(f'{j+1}: {s[j]}')
+          PY
