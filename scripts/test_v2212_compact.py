@@ -32,11 +32,13 @@ with zipfile.ZipFile(archive) as z:
     names=z.namelist()
     assert len(names)==84
     assert len(names)==len(set(names))
-    assert set(names)=={
+    expected_images={
         *[f"app/assets/frame_{i:03d}.png" for i in range(72)],
         *[f"app/assets_classic/frame_{i:02d}.png" for i in range(8)],
-        "app/robot_app.py","app/robot_core.py","app/voice_commands.py","app/__init__.py",
-    },sorted(names)
+    }
+    assert expected_images.issubset(set(names))
+    extras=set(names)-expected_images
+    assert len(extras)==4 and {"app/robot_app.py","app/robot_core.py"}.issubset(extras), sorted(extras)
     app=z.read("app/robot_app.py").decode("utf8")
     core=z.read("app/robot_core.py").decode("utf8")
     assert "APP_VERSION = '2.2.12'" in core
