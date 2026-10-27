@@ -97,6 +97,7 @@ with zipfile.ZipFile(archive) as z:
                              _cream_variants={s:i for i,s in enumerate(
                                   ("center","left","right","up","down","blink","happy","tilt_left","tilt_right"))})
         anim=MethodType(ns2["Avatar"].animate,fake)
+        fake.animate=anim
         for tick in range(300):
             anim()
             assert c.coords(handle)==[50.0,56.0],("sprite clipped",tick,c.coords(handle))
