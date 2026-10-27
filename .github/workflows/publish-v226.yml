@@ -1,0 +1,61 @@
+name: Publish Muhammad Robot v2.2.6 on-robot Hide control
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v226.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check if release exists
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v2.2.6 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Download checksum-pinned v2.2.5 ZIP
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p baseline dist
+          gh release download v2.2.5 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.5.zip' --dir baseline
+      - name: Build v2.2.6 without changing other functionality
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          python3 scripts/build_v226.py baseline/MuhammadRobot-2.2.5.zip dist/MuhammadRobot-2.2.6.zip
+      - name: Setup Tk GUI test
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends python3-tk xvfb
+      - name: Test actual on-robot button and existing controls
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          xvfb-run -a python3 scripts/test_hide_v226.py dist/MuhammadRobot-2.2.6.zip
+      - name: Recheck previous eye orb functionality
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          xvfb-run -a python3 scripts/test_badge_v225.py dist/MuhammadRobot-2.2.6.zip
+      - name: Publish v2.2.6 after both GUI tests
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v2.2.6 dist/MuhammadRobot-2.2.6.zip dist/manifest.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --title 'Muhammad Robot v2.2.6 - On-Robot Hide Button' \
+            --notes 'Adds a compact fifth minus-sign button on the robot belly to hide into the circular animated-eye restore badge. Keeps voice Close robot, and retains the original four control functions unchanged. Saved Python code and updater untouched.' \
+            --latest
