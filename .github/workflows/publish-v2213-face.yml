@@ -1,0 +1,57 @@
+name: Publish Muhammad Robot v2.2.13 restore whole cream mascot
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v2213-face.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check immutable version tag
+        id: exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v2.2.13 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'found=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'found=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Download exact v2.2.12 plus device validator
+        if: steps.exists.outputs.found == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p baseline dist
+          gh release download v2.2.12 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.12.zip' --dir baseline
+          gh release download v2.2.10 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.10.zip' --dir baseline
+      - name: Install offline build and Tk test requirements
+        if: steps.exists.outputs.found == 'false'
+        run: |
+          python3 -m pip install --user Pillow
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends python3-tk xvfb
+      - name: Rebuild original complete cream mascot with aligned eyes
+        if: steps.exists.outputs.found == 'false'
+        run: |
+          python3 scripts/build_v2213_face_repair.py baseline/MuhammadRobot-2.2.12.zip dist/MuhammadRobot-2.2.13.zip
+      - name: Validate complete head and body with device safety checks and actual Tk
+        if: steps.exists.outputs.found == 'false'
+        run: |
+          xvfb-run -a python3 scripts/test_v2213_face_repair.py baseline/MuhammadRobot-2.2.10.zip dist/MuhammadRobot-2.2.13.zip
+          xvfb-run -a python3 scripts/test_badge_v225.py dist/MuhammadRobot-2.2.13.zip
+      - name: Publish verified repair only
+        if: steps.exists.outputs.found == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v2.2.13 dist/MuhammadRobot-2.2.13.zip dist/manifest.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --title 'Muhammad Robot v2.2.13 - Whole-body Face Fix' \
+            --notes 'Repairs detached enlarged eyes and missing body from v2.2.12. Uses the original approved full cream-white 3D mascot as one coherent frame, then changes ONLY the two eyes inside its existing visor. Keeps mouse gaze, blink, idle float, dragging, belly menu with Run Python, old-style rollback, microphone, Python Studio, saved data and 84-file safe automatic GitHub updates. Automated on-device-compatibility ZIP validator and full-body Tk visuals passed.' \
+            --latest
