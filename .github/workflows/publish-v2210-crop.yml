@@ -3,7 +3,10 @@ name: Publish Muhammad Robot v2.2.10 critical crop fix
 on:
   push:
     branches: [main]
-    paths: ['.github/workflows/publish-v2210-crop.yml']
+    paths:
+      - '.github/workflows/publish-v2210-crop.yml'
+      - 'scripts/build_v2210_crop.py'
+      - 'scripts/test_v2210_crop.py'
   workflow_dispatch:
 
 permissions:
