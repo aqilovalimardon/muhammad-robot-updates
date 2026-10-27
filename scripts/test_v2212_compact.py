@@ -21,7 +21,7 @@ with zipfile.ZipFile(old) as z:
     mod=ast.Module(body=[safety]+keep,type_ignores=[])
     ast.fix_missing_locations(mod)
     ns={"hashlib":hashlib,"zipfile":zipfile,"Path":Path,"re":re,
-        "VERSION_RE":re.compile(r"^\\d+\\.\\d+\\.\\d+$")}
+        "VERSION_RE":re.compile(r"^\d+\.\d+\.\d+$")}
     exec(compile(mod,"deployed_zip_validator.py","exec"),ns)
     checker=ns["inspect_release"]
 
