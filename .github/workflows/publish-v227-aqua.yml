@@ -1,0 +1,59 @@
+name: Publish Muhammad Robot v2.2.7 Mini Soft Aqua
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v227-aqua.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check existing release
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v2.2.7 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Get verified v2.2.6
+        if: steps.existing.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p baseline dist
+          gh release download v2.2.6 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.6.zip' --dir baseline
+      - name: Setup image and GUI test dependencies
+        if: steps.existing.outputs.exists == 'false'
+        run: |
+          python3 -m pip install --user Pillow
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends python3-tk xvfb
+      - name: Build offline animation sprites and Aqua GUI
+        if: steps.existing.outputs.exists == 'false'
+        run: |
+          python3 scripts/build_v227_aqua.py baseline/MuhammadRobot-2.2.6.zip dist/MuhammadRobot-2.2.7.zip
+      - name: Verify updated Aqua GUI and backwards compatibility
+        if: steps.existing.outputs.exists == 'false'
+        run: |
+          xvfb-run -a python3 scripts/test_aqua_v227.py dist/MuhammadRobot-2.2.7.zip
+          xvfb-run -a python3 scripts/test_badge_v225.py dist/MuhammadRobot-2.2.7.zip
+      - name: Publish only if all validation passes
+        if: steps.existing.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v2.2.7 dist/MuhammadRobot-2.2.7.zip dist/manifest.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --title 'Muhammad Robot v2.2.7 - Mini Soft Aqua' \
+            --notes 'Pre-rendered small translucent milk-blue jelly mascot with swaying antenna, subtle levitation, bright moving eyes, one glass belly button and animated five-option bubble menu. Keeps microphone, voice, Python Studio, two-eye minimized orb, and GitHub updates. Does not add a 3D engine or idle CPU-heavy render loop.' \
+            --latest
