@@ -1,0 +1,59 @@
+name: Publish Muhammad Robot v2.2.8 aqua transparency repair
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v228.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Do not overwrite an existing release
+        id: found
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v2.2.8 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Download checksum-verified v2.2.7
+        if: steps.found.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p baseline dist
+          gh release download v2.2.7 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.7.zip' --dir baseline
+      - name: Setup image and Tk test dependencies
+        if: steps.found.outputs.exists == 'false'
+        run: |
+          python3 -m pip install --user Pillow
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends python3-tk xvfb
+      - name: Build 3D aqua sprite and remove partial-alpha pink artifacts
+        if: steps.found.outputs.exists == 'false'
+        run: |
+          python3 scripts/build_v228.py baseline/MuhammadRobot-2.2.7.zip dist/MuhammadRobot-2.2.8.zip
+      - name: GUI and transparency regressions
+        if: steps.found.outputs.exists == 'false'
+        run: |
+          xvfb-run -a python3 scripts/test_aqua_v228.py dist/MuhammadRobot-2.2.8.zip
+          xvfb-run -a python3 scripts/test_badge_v225.py dist/MuhammadRobot-2.2.8.zip
+      - name: Publish only after success
+        if: steps.found.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v2.2.8 dist/MuhammadRobot-2.2.8.zip dist/manifest.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --title 'Muhammad Robot v2.2.8 - 3D Aqua / Magenta Background Fix' \
+            --notes 'Replace flat procedural mascot with improved translucent-looking 3D aqua artwork. Fix Windows color-key pink artifacts by enforcing strictly binary transparency on every sprite frame. Replace black-square belly Tk button with canvas-drawn circular glass control. Retains voice, GitHub updater, Studio, and two-eye restore badge.' \
+            --latest
