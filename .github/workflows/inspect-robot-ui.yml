@@ -1,0 +1,35 @@
+name: Inspect robot UI for hide button integration
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/inspect-robot-ui.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract release UI layout into diagnostic logs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/r225
+          gh release download v2.2.5 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.5.zip' --dir /tmp/r225
+          python3 - <<'PY'
+          import zipfile
+          z=zipfile.ZipFile('/tmp/r225/MuhammadRobot-2.2.5.zip')
+          s=z.read('app/robot_app.py').decode('utf-8').splitlines()
+          print('SOURCE LENGTH',len(s))
+          print('=== DEFINITIONS ===')
+          for n,line in enumerate(s,1):
+              if line.startswith('    def '):print(n,line)
+          print('=== GUI / BUTTON / CANVAS RELEVANT EXCERPTS ===')
+          keys=['def __init__','def _show_restore_orb','def restore','def minimize','def _draw','def draw','create_image','create_text','create_oval','bind(','Button(','button','click','Mouse','hover','<Button','<Motion','<Enter','<Leave','root.geometry','Canvas(','self.canvas','self.toolbar']
+          hits=set()
+          for n,line in enumerate(s):
+              if any(k in line for k in keys):
+                  for i in range(max(0,n-3),min(len(s),n+5)):hits.add(i)
+          for i in sorted(hits):print(f'{i+1:04d} {s[i]}')
+          PY
