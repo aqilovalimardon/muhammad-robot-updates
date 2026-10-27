@@ -1,0 +1,57 @@
+name: Publish Muhammad Robot v2.2.5 animated eyes badge
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v225.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect published version
+        id: exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v2.2.5 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Get trusted v2.2.4 release ZIP
+        if: steps.exists.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p baseline dist
+          gh release download v2.2.4 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.4.zip' --dir baseline
+      - name: Build checked v2.2.5 ZIP
+        if: steps.exists.outputs.exists == 'false'
+        run: |
+          python3 scripts/build_v225.py baseline/MuhammadRobot-2.2.4.zip dist/MuhammadRobot-2.2.5.zip
+      - name: Install GUI smoke test prerequisites
+        if: steps.exists.outputs.exists == 'false'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends python3-tk xvfb
+      - name: Test hidden badge in a real Tk window
+        if: steps.exists.outputs.exists == 'false'
+        run: |
+          xvfb-run -a python3 scripts/test_badge_v225.py dist/MuhammadRobot-2.2.5.zip
+      - name: Publish verified release and manifest
+        if: steps.exists.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v2.2.5 dist/MuhammadRobot-2.2.5.zip dist/manifest.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --title 'Muhammad Robot v2.2.5 - Animated Eyes Restore Badge' \
+            --notes 'Replaces the small square R restore button with a circular transparent hologram badge. Two glowing eyes gently follow a nearby mouse pointer and recenter when it moves away. Click to restore. No changes to voice, editor, saved code, animation assets, or auto-update.' \
+            --latest
