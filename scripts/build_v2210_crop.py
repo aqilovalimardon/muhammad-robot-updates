@@ -43,11 +43,11 @@ def build(baseline,dest):
             zout.writestr(entry,contents)
     if sorted(modified)!=['app/robot_app.py','app/robot_core.py']:
         raise ValueError('Unexpected files patched: '+str(modified))
-    with zipfile.ZipFile(dest) as z:
+    with zipfile.ZipFile(baseline) as original, zipfile.ZipFile(dest) as z:
         if z.testzip() is not None or z.namelist()!=names:
             raise ValueError('Output corrupt or changed structure')
         for name in names:
-            if name not in modified and z.read(name)!=zin.read(name):
+            if name not in modified and z.read(name)!=original.read(name):
                 raise AssertionError('Unrelated file changed: '+name)
     mf={'version':'2.2.10','zip':dest.name,'sha256':hashlib.sha256(dest.read_bytes()).hexdigest()}
     (dest.parent/'manifest.json').write_text(json.dumps(mf,indent=2)+'\n',encoding='utf8')
