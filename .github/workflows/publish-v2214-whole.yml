@@ -1,0 +1,60 @@
+name: Publish Muhammad Robot v2.2.14 — intact 3D mascot and moving antenna
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v2214-whole.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Block duplicate releases
+        id: exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v2.2.14 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'found=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'found=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Download known v2.2.13 and installed v2.2.10 validator
+        if: steps.exists.outputs.found == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p baseline dist
+          gh release download v2.2.13 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.13.zip' --dir baseline
+          gh release download v2.2.10 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.10.zip' --dir baseline
+      - name: Install build-only Python imaging and virtual Tk display
+        if: steps.exists.outputs.found == 'false'
+        run: |
+          python3 -m pip install --user Pillow
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends python3-tk xvfb
+      - name: Rebuild 72 full-character animation frames
+        if: steps.exists.outputs.found == 'false'
+        run: |
+          python3 scripts/build_v2214_whole.py baseline/MuhammadRobot-2.2.13.zip dist/MuhammadRobot-2.2.14.zip
+      - name: Gate release on actual device validator, face/body and antenna tests
+        if: steps.exists.outputs.found == 'false'
+        run: |
+          xvfb-run -a python3 scripts/test_v2214_whole.py baseline/MuhammadRobot-2.2.13.zip dist/MuhammadRobot-2.2.14.zip baseline/MuhammadRobot-2.2.10.zip
+          xvfb-run -a python3 scripts/test_badge_v225.py dist/MuhammadRobot-2.2.14.zip
+      - name: Release only if all tests passed
+        if: steps.exists.outputs.found == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v2.2.14 dist/MuhammadRobot-2.2.14.zip dist/manifest.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --title 'Muhammad Robot v2.2.14 - Intact Mini Cream and Moving Antenna' \
+            --notes 'Restores the approved front-facing cream-white 3D plush mascot as ONE intact image. Removes incorrect overlaid face/visor from earlier versions. Adds smoothly swaying intact antenna, gentle floating, mouse eye-glint reactions and tiny drag tilts. Existing Python Studio, audio, bubble belly menu including Run Python, two-eyed minimized orb, classic rollback and versioned GitHub updater are unchanged. 84-entry archive validates against deployed ZIP security limit.' \
+            --latest
