@@ -1,0 +1,59 @@
+name: Publish Muhammad Robot v2.2.11 Living Mini Cream
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v2211-living.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Skip publishing a duplicate immutable release
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v2.2.11 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'found=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'found=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Download checksum pinned stable v2.2.10
+        if: steps.existing.outputs.found == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p baseline dist
+          gh release download v2.2.10 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.10.zip' --dir baseline
+      - name: Install build-only art rendering and Tk test dependencies
+        if: steps.existing.outputs.found == 'false'
+        run: |
+          python3 -m pip install --user Pillow
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends python3-tk xvfb
+      - name: Build 144 small living mascot frames and safe classic rollback
+        if: steps.existing.outputs.found == 'false'
+        run: |
+          python3 scripts/build_v2211_living.py baseline/MuhammadRobot-2.2.10.zip dist/MuhammadRobot-2.2.11.zip
+      - name: Validate visual fidelity, cursor gaze, drag motion, UI and saved functionality
+        if: steps.existing.outputs.found == 'false'
+        run: |
+          xvfb-run -a python3 scripts/test_v2211_living.py dist/MuhammadRobot-2.2.11.zip
+          xvfb-run -a python3 scripts/test_badge_v225.py dist/MuhammadRobot-2.2.11.zip
+      - name: Publish verified version only if all tests succeed
+        if: steps.existing.outputs.found == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v2.2.11 dist/MuhammadRobot-2.2.11.zip dist/manifest.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --title 'Muhammad Robot v2.2.11 - Living Mini Cream' \
+            --notes 'Living Mini Cream introduces subtle pre-rendered cream-fur edges, expressive eyes that track nearby mouse movement, periodic blinks, antenna movement, and quick body tilt when dragged. It maintains the 100x112 tiny avatar, popup belly menu, Python Studio, English microphone commands, eye-orb minimized view and GitHub automatic updater. Includes Appearance: Living / Classic safety toggle. All rendering uses prebuilt PNG images, no runtime 3D engine or extra libraries. Note: on Windows, keyed transparency is used for stability, not native per-pixel layered-window alpha.' \
+            --latest
