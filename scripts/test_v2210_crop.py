@@ -59,6 +59,7 @@ with zipfile.ZipFile(zip_path) as z:
                              main=canvas,sprite=sprite,frames=frames,t=0,
                              minimized=False,win_width=100,win_height=112)
         advance=MethodType(ns['Runner'].animate,fake)
+        fake.animate=advance
         root.update()
         for n in range(180):  # test multiple complete sprite cycles
             advance()
