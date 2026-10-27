@@ -1,0 +1,59 @@
+name: Publish Muhammad Robot v2.2.9 Mini Cream half-size repair
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v229-cream.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check immutable release tag
+        id: exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v2.2.9 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'found=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'found=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Download verified v2.2.8 baseline
+        if: steps.exists.outputs.found == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p baseline dist
+          gh release download v2.2.8 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.8.zip' --dir baseline
+      - name: Install build-only dependencies
+        if: steps.exists.outputs.found == 'false'
+        run: |
+          python3 -m pip install --user Pillow
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends python3-tk xvfb
+      - name: Build tiny front-facing reference robot and strong binary color-key sprites
+        if: steps.exists.outputs.found == 'false'
+        run: |
+          python3 scripts/build_v229_cream.py baseline/MuhammadRobot-2.2.8.zip dist/MuhammadRobot-2.2.9.zip
+      - name: Test transparency, controls, and backwards compatibility
+        if: steps.exists.outputs.found == 'false'
+        run: |
+          xvfb-run -a python3 scripts/test_v229_cream.py dist/MuhammadRobot-2.2.9.zip
+          xvfb-run -a python3 scripts/test_badge_v225.py dist/MuhammadRobot-2.2.9.zip
+      - name: Release only after all tests succeed
+        if: steps.exists.outputs.found == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v2.2.9 dist/MuhammadRobot-2.2.9.zip dist/manifest.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --title 'Muhammad Robot v2.2.9 - Mini Cream 50% Size + Clean Transparent Edges' \
+            --notes 'Half-sized 100x112 front-facing cream plush model. Replaces blended magenta alpha sprites with 36 lightweight opaque RGB color-key frames; gentle float and moving antenna; a small round glass belly control instead of black square. Preserves speech, Python Studio, five-option popup, minimized two-eye orb, and automatic Github update. No runtime 3D engine/dependency.' \
+            --latest
