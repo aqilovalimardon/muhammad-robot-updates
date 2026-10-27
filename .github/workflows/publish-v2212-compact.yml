@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/publish-v2212-compact.yml'
+      - 'scripts/build_v2212_compact.py'
+      - 'scripts/test_v2212_compact.py'
   workflow_dispatch:
 
 permissions:
