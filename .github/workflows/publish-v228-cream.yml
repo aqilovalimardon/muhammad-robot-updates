@@ -1,0 +1,55 @@
+name: Publish Muhammad Robot v2.2.8 Cream Plush Reference
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-v228-cream.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check existing release
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v2.2.8 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Download exact verified v2.2.7 baseline
+        if: steps.existing.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p baseline dist
+          gh release download v2.2.7 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.7.zip' --dir baseline
+      - name: Install build-only image library
+        if: steps.existing.outputs.exists == 'false'
+        run: |
+          python3 -m pip install --user Pillow
+      - name: Build cream mascot PNG frames with clean color key
+        if: steps.existing.outputs.exists == 'false'
+        run: |
+          python3 scripts/build_v228_cream.py baseline/MuhammadRobot-2.2.7.zip dist/MuhammadRobot-2.2.8.zip
+      - name: Test exact art and app compatibility
+        if: steps.existing.outputs.exists == 'false'
+        run: |
+          python3 scripts/test_cream_v228.py dist/MuhammadRobot-2.2.8.zip
+      - name: Publish after successful tests only
+        if: steps.existing.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v2.2.8 dist/MuhammadRobot-2.2.8.zip dist/manifest.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --title 'Muhammad Robot v2.2.8 - Cream Plush A-Style' \
+            --notes 'Restores user-selected warm cream-white glossy, soft, two-big-eyed mascot from the A reference image, animated pre-rendered 20-frame lightweight antenna and floating motion. Fixes visible magenta transparency by supplying exact Windows color-key RGB under transparent pixels. Keeps all Python Studio, English voice, update engine, five-option belly menu and eye-orb restore logic.' \
+            --latest
