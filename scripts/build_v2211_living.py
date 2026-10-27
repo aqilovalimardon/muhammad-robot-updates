@@ -151,6 +151,7 @@ OLD_ANIMATE="""    def animate(self):
 NEW_ANIMATE="""    def animate(self):
         if not self.minimized and self.frames:
             self.t+=1
+            gaze='center'
             if getattr(self,'_cream_style','living')=='classic':
                 index=(self.t//4)%len(self.frames)
             else:
