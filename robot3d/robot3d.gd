@@ -1,9 +1,10 @@
 extends Node3D
 # Muhammad Robot: actual Godot 3D meshes, light, fur, 3D eye & antenna movement.
-# v2.2.18: expressive touch reactions and instant, quiet offline feedback sounds.
+# v2.2.19: shared host menu, springy plush body, fluffy orb and richer emotions.
 const Feedback = preload("res://robot_feedback.gd")
+const PlushOrb = preload("res://plush_orb.gd")
 const DESK_SIZE=Vector2i(176,200)
-const ORB_SIZE=Vector2i(54,54)
+const ORB_SIZE=Vector2i(64,64)
 const CREAM=Color(0.89,0.78,0.64)
 const ICE=Color(0.61,0.88,1.0)
 var robot:Node3D
@@ -18,7 +19,7 @@ var drag_v=0.0
 var hidden=false
 var menu:PanelContainer
 var belly:Button
-var small_eye:Panel
+var small_eye:Control
 var orb_left_eye:Panel
 var orb_right_eye:Panel
 var old_position=Vector2i.ZERO
@@ -40,6 +41,17 @@ var emotion="idle"
 var emotion_left=0.0
 var hold_elapsed=0.0
 var hold_excited=false
+var hold_love=false
+var heart_eyes:Array[MeshInstance3D]=[]
+var emotion_cycle=0
+var idle_elapsed=0.0
+var soft_offset=Vector2.ZERO
+var soft_velocity=Vector2.ZERO
+var head_lag=Vector2.ZERO
+var head_lag_velocity=Vector2.ZERO
+var drag_force=Vector2.ZERO
+var left_foot:MeshInstance3D
+var right_foot:MeshInstance3D
 
 func _ready():
     var w=get_window()
@@ -197,8 +209,8 @@ func _character():
     left_hand.rotation_degrees.z=-15
     right_hand=_sphere(robot,"RightHand",Vector3(0.63,-0.24,0),Vector3(0.21,0.32,0.22),soft)
     right_hand.rotation_degrees.z=15
-    _sphere(robot,"FootLeft",Vector3(-0.30,-0.80,0.18),Vector3(0.29,0.22,0.30),soft)
-    _sphere(robot,"FootRight",Vector3(0.30,-0.80,0.18),Vector3(0.29,0.22,0.30),soft)
+    left_foot=_sphere(robot,"FootLeft",Vector3(-0.30,-0.80,0.18),Vector3(0.29,0.22,0.30),soft)
+    right_foot=_sphere(robot,"FootRight",Vector3(0.30,-0.80,0.18),Vector3(0.29,0.22,0.30),soft)
     head=Node3D.new()
     head.name="Head"
     head.position=Vector3(0,0.34,0)
@@ -214,6 +226,7 @@ func _character():
         _sphere(eye,"DarkPupil",Vector3(0.013,-0.005,0.035),Vector3(0.089,0.132,0.034),dark)
         _sphere(eye,"EyeGlint",Vector3(-0.050,0.070,0.070),Vector3(0.035,0.046,0.012),white)
         pupils.append(eye)
+        heart_eyes.append(_heart_eye(x))
     var mouth_mat=_mat(ICE,0.8,0.25)
     smile=Node3D.new()
     head.add_child(smile)
@@ -243,6 +256,28 @@ func _character():
     _rod(antenna,"Lower",Vector3.ZERO,Vector3(0.09,0.22,0),0.044,soft)
     _rod(antenna,"Upper",Vector3(0.09,0.22,0),Vector3(0.16,0.37,0),0.035,soft)
     _sphere(antenna,"GlowingBall",Vector3(0.16,0.41,0),Vector3(0.14,0.14,0.14),white)
+
+func _heart_eye(x:float)->MeshInstance3D:
+    var st=SurfaceTool.new()
+    st.begin(Mesh.PRIMITIVE_TRIANGLES)
+    var outline:PackedVector3Array=[]
+    for i in range(40):
+        var a=TAU*i/40.0
+        outline.append(Vector3(16.0*pow(sin(a),3.0),
+            13.0*cos(a)-5.0*cos(2*a)-2.0*cos(3*a)-cos(4*a),0.0)*0.009)
+    for i in range(outline.size()):
+        for point in [Vector3.ZERO,outline[i],outline[(i+1)%outline.size()]]:
+            st.set_normal(Vector3(0,0,1))
+            st.add_vertex(point)
+    var mesh=MeshInstance3D.new()
+    mesh.mesh=st.commit()
+    var mat=_mat(Color("ff9db3"),0.8,0.35)
+    mat.cull_mode=BaseMaterial3D.CULL_DISABLED
+    mesh.material_override=mat
+    mesh.position=Vector3(x,0.015,0.72)
+    mesh.visible=false
+    head.add_child(mesh)
+    return mesh
 
 func _controls():
     var layer=CanvasLayer.new()
@@ -278,46 +313,48 @@ func _controls():
             sound_button.text="♪ Sounds: On" if feedback.enabled else "♪ Sounds: Off"
     layer.add_child(menu)
     # Real cream-colored movable two-eye minimized orb, not a text glyph.
-    small_eye=Panel.new()
+    small_eye=PlushOrb.new()
     small_eye.name="CreamEyeOrb"
     small_eye.visible=false
-    small_eye.position=Vector2(2,2)
-    small_eye.size=Vector2(50,50)
+    small_eye.position=Vector2.ZERO
+    small_eye.size=Vector2(64,64)
     small_eye.mouse_filter=Control.MOUSE_FILTER_IGNORE
-    var orb_style=StyleBoxFlat.new()
-    orb_style.bg_color=Color(0.88,0.77,0.62,1.0)
-    orb_style.border_color=Color(0.97,0.88,0.75,1.0)
-    orb_style.set_border_width_all(2)
-    orb_style.set_corner_radius_all(25)
-    small_eye.add_theme_stylebox_override("panel",orb_style)
     layer.add_child(small_eye)
     orb_left_eye=Panel.new()
     orb_right_eye=Panel.new()
     var black_eye_style=StyleBoxFlat.new()
     black_eye_style.bg_color=Color(0.015,0.013,0.025,1.0)
-    black_eye_style.set_corner_radius_all(6)
+    black_eye_style.set_corner_radius_all(7)
     for eye in [orb_left_eye,orb_right_eye]:
-        eye.size=Vector2(10,12)
+        eye.size=Vector2(14,16)
         eye.mouse_filter=Control.MOUSE_FILTER_IGNORE
         eye.add_theme_stylebox_override("panel",black_eye_style)
         small_eye.add_child(eye)
-    orb_left_eye.position=Vector2(12,19)
-    orb_right_eye.position=Vector2(28,19)
+    orb_left_eye.position=Vector2(15,24)
+    orb_right_eye.position=Vector2(35,24)
 
 func _toggle_menu():
-    if not hidden:menu.visible=not menu.visible
+    _cancel_hold()
+    if not bridge_file.is_empty():
+        menu.visible=false
+        _bridge("menu")
+    else:
+        if hidden:_show()
+        menu.visible=not menu.visible
 
 func _bridge(command:String):
     if bridge_file.is_empty():
         print("Standalone 3D preview: no Python robot bridge for ",command)
         return
-    if command not in ["classic","editor","run"]:
+    if command not in ["classic","editor","run","menu"]:
         return
-    var file=FileAccess.open(bridge_file,FileAccess.WRITE)
+    var pending=bridge_file+".tmp"
+    var file=FileAccess.open(pending,FileAccess.WRITE)
     if file!=null:
         file.store_string(command)
         file.flush()
         file.close()
+        DirAccess.rename_absolute(pending,bridge_file)
 
 func _action(command:String):
     menu.visible=false
@@ -382,32 +419,26 @@ func _listen_to_python_voice(delta:float):
         _hide()
     elif data=="show":
         _show()
+    elif data=="sound":
+        var on=feedback.toggle_enabled()
+        sound_button.text="♪ Sounds: On" if on else "♪ Sounds: Off"
+    elif data=="emotion":
+        _show_next_emotion()
+    elif data=="happy":
+        _set_emotion("excited",1.2)
 
 func _process(delta:float):
     t+=minf(delta,0.05)
     _listen_to_python_voice(delta)
     _update_emotion(delta)
     if hidden:
-        # Black eyes follow nearby mouse, even while only the 54px orb exists.
+        # The larger black dots track the pointer on the fluffy cream pom-pom.
         var mouse=DisplayServer.mouse_get_position()-get_window().position
-        var aim=(Vector2(mouse)-Vector2(27,27)).limit_length(130.0)*0.018
-        orb_left_eye.position=Vector2(12,19)+aim
-        orb_right_eye.position=Vector2(28,19)+aim
+        var aim=(Vector2(mouse)-Vector2(32,32)).limit_length(100.0)*0.016
+        orb_left_eye.position=Vector2(15,24)+aim
+        orb_right_eye.position=Vector2(35,24)+aim
         return
-    robot.position.y=0.026*sin(t*2.2)
-    antenna.rotation.z=0.28*sin(t*3.4)+0.035*sin(t*5.7)-clampf(drag_v*0.003,-0.15,0.15)
-    antenna.rotation.x=0.10*sin(t*2.7)
-    # Damped spring makes fur and rounded body squeeze as a single soft object.
-    var target=clampf(0.04+absf(drag_v)*0.007,0.04,0.145) if dragging else 0.0
-    squish_velocity+=(target-squish)*62.0*delta
-    squish_velocity*=exp(-9.0*delta)
-    squish+=squish_velocity*delta
-    squish=clampf(squish,-0.11,0.19)
-    robot.scale=Vector3(1.0+squish*0.70,1.0-squish,1.0+squish*0.25)
-    spring_head=lerpf(spring_head,clampf(drag_v*-0.012,-0.18,0.18),minf(1,delta*7))
-    head.rotation.z=lerpf(head.rotation.z,spring_head,minf(1,delta*9))
-    left_hand.rotation.z=lerpf(left_hand.rotation.z,-0.26-squish*0.9,minf(1,delta*8))
-    right_hand.rotation.z=lerpf(right_hand.rotation.z,0.26+squish*0.9,minf(1,delta*8))
+    _advance_soft_body(delta)
     var cursor=DisplayServer.mouse_get_position()-get_window().position
     var offset=Vector2(cursor.x-88.0,cursor.y-100.0)
     if offset.length()>160:offset=Vector2.ZERO
@@ -421,7 +452,6 @@ func _process(delta:float):
         pupils[i].position=pupils[i].position.lerp(desired,minf(1,delta*12))
     head.rotation.y=lerpf(head.rotation.y,sx*0.09,minf(1,delta*4))
     head.rotation.x=lerpf(head.rotation.x,sy*0.06,minf(1,delta*4))
-    robot.rotation.z=lerpf(robot.rotation.z,clampf(drag_v*-0.03,-0.15,0.15) if dragging else 0.0,minf(1,delta*6))
     drag_v=lerpf(drag_v,0.0,minf(1,delta*8))
     blinking+=delta
     if blinking>3.1:
@@ -430,31 +460,86 @@ func _process(delta:float):
         for eye in pupils:eye.scale.y*=h
         if p>0.18:blinking=0.0
 
+func _advance_soft_body(delta:float):
+    # Substeps keep the spring response stable even after a slow frame.
+    var remaining=minf(delta,0.12)
+    while remaining>0.0:
+        var step=minf(remaining,1.0/120.0)
+        remaining-=step
+        var target=clampf(0.14+absf(drag_force.x)*0.07+drag_force.y*0.08,0.04,0.28) if dragging else 0.0
+        squish_velocity+=((target-squish)*72.0-squish_velocity*7.8)*step
+        squish=clampf(squish+squish_velocity*step,-0.17,0.30)
+        var offset_target=-drag_force*0.10 if dragging else Vector2.ZERO
+        soft_velocity+=((offset_target-soft_offset)*68.0-soft_velocity*8.5)*step
+        soft_offset+=soft_velocity*step
+        head_lag_velocity+=((soft_offset*1.5-head_lag)*45.0-head_lag_velocity*6.5)*step
+        head_lag+=head_lag_velocity*step
+        drag_force=drag_force.move_toward(Vector2.ZERO,step*2.3)
+    var height=1.0-squish
+    var width=1.0/sqrt(height)
+    robot.scale=Vector3(width,height,width)
+    robot.position=Vector3(soft_offset.x,0.026*sin(t*2.2)-soft_offset.y,0.0)
+    robot.rotation.z=clampf(-soft_offset.x*1.8,-0.22,0.22)
+    var tilt=-0.15 if emotion=="curious" else (0.10 if emotion=="sleepy" else 0.0)
+    head.position=Vector3(head_lag.x,0.34-head_lag.y+squish*0.18,0.0)
+    head.rotation.z=clampf(-head_lag.x*2.3+tilt,-0.30,0.30)
+    # Face, torso and limbs lag differently, then gently wobble back into place.
+    head.scale=Vector3(1.0-squish*0.18,1.0+squish*0.22,1.0)
+    left_hand.rotation.z=-0.26-squish*1.8+head_lag.x*2.0
+    right_hand.rotation.z=0.26+squish*1.8+head_lag.x*2.0
+    left_hand.position.y=-0.24+head_lag.y*0.8
+    right_hand.position.y=-0.24-head_lag.y*0.8
+    left_foot.rotation.z=-squish*0.6-soft_offset.x
+    right_foot.rotation.z=squish*0.6-soft_offset.x
+    antenna.rotation.z=0.28*sin(t*3.4)+0.035*sin(t*5.7)-head_lag.x*2.5
+    antenna.rotation.x=0.10*sin(t*2.7)+head_lag.y*1.8
+
 func _set_emotion(value:String,duration:float):
     emotion=value
     emotion_left=duration
     blinking=0.0
+    idle_elapsed=0.0
+
+func _show_next_emotion():
+    var choices=["wink","love","curious","sleepy","happy"]
+    _set_emotion(choices[emotion_cycle%choices.size()],1.8)
+    emotion_cycle+=1
 
 func _update_emotion(delta:float):
     emotion_left=maxf(0.0,emotion_left-delta)
     if dragging:
         hold_elapsed+=delta
+        if not hidden and hold_elapsed>1.2 and not orb_moved and not hold_love:
+            hold_love=true
+            _set_emotion("love",1.5)
         if emotion_left<=0.0:emotion="happy"
     elif emotion_left<=0.0:
         emotion="idle"
+        if not hidden:
+            idle_elapsed+=delta
+            if idle_elapsed>9.0:
+                _set_emotion(["curious","wink","sleepy"][emotion_cycle%3],1.4)
+                emotion_cycle+=1
     var eye_scale=Vector3.ONE
     if emotion=="surprised":eye_scale=Vector3(1.12,1.12,1.0)
     elif emotion=="happy":eye_scale=Vector3(1.07,0.64,1.0)
     elif emotion=="excited":eye_scale=Vector3(1.12,0.80,1.0)
+    elif emotion=="sleepy":eye_scale=Vector3(1.04,0.22,1.0)
     for i in range(pupils.size()):
-        pupils[i].scale=pupils[i].scale.lerp(eye_scale,minf(1.0,delta*16.0))
+        var target_scale=eye_scale
+        if emotion=="wink":target_scale=Vector3(1.06,0.13 if i==0 else 1.02,1.0)
+        elif emotion=="curious":target_scale=Vector3(1.03,1.10 if i==0 else 0.65,1.0)
+        pupils[i].visible=emotion!="love"
+        heart_eyes[i].visible=emotion=="love"
+        heart_eyes[i].scale=Vector3.ONE*(1.0+0.05*sin(t*5.0))
+        pupils[i].scale=pupils[i].scale.lerp(target_scale,minf(1.0,delta*16.0))
         var tilt=0.10 if i==0 else -0.10
         pupils[i].rotation.z=lerpf(pupils[i].rotation.z,
             tilt if emotion in ["happy","excited"] else 0.0,minf(1.0,delta*12.0))
-    smile.visible=emotion in ["happy","excited"]
+    smile.visible=emotion in ["happy","excited","wink","love"]
     surprised_mouth.visible=emotion=="surprised"
     # The two black eyes on the small cream orb react to touch as well.
-    var eye_height=9.0 if dragging else 12.0
+    var eye_height=11.0 if dragging else 16.0
     for eye in [orb_left_eye,orb_right_eye]:
         eye.size.y=lerpf(eye.size.y,eye_height,minf(1.0,delta*16.0))
 
@@ -463,10 +548,11 @@ func _begin_hold(pointer:Vector2i):
     orb_moved=false
     hold_elapsed=0.0
     hold_excited=false
+    hold_love=false
     drag_from=pointer
     window_from=get_window().position
     _set_emotion("surprised",0.25)
-    squish_velocity=0.6
+    squish_velocity=1.0
     feedback.play_cue("grab")
 
 func _move_hold(pointer:Vector2i,relative:Vector2):
@@ -480,6 +566,7 @@ func _move_hold(pointer:Vector2i,relative:Vector2):
     else:
         get_window().position=window_from+diff
         drag_v=clampf(relative.x*0.45,-16.0,16.0)
+        drag_force=relative.limit_length(70.0)*0.018
     if relative.length()>14.0 and hold_elapsed>0.15 and not hold_excited:
         hold_excited=true
         _set_emotion("excited",0.45)
@@ -491,21 +578,20 @@ func _finish_hold(pointer:Vector2i):
     if hidden and not orb_moved and (pointer-drag_from).length()<7.0:
         _show()
     else:
-        _set_emotion("happy",0.65)
-        squish_velocity=-0.65
+        _set_emotion("wink" if not orb_moved and hold_elapsed<0.25 else "happy",0.85)
+        squish_velocity=-1.1
         feedback.play_cue("release")
 
 func _cancel_hold():
     dragging=false
     drag_v=0.0
+    drag_force=Vector2.ZERO
     _set_emotion("idle",0.0)
 
 func _input(e:InputEvent):
     # Right click directly on the 3D robot opens the SAME mode switch menu.
     if e is InputEventMouseButton and e.button_index==MOUSE_BUTTON_RIGHT and e.pressed:
-        _cancel_hold()
-        if hidden:_show()
-        menu.visible=not menu.visible
+        _toggle_menu()
         get_viewport().set_input_as_handled()
         return
     if e is InputEventMouseButton and e.button_index==MOUSE_BUTTON_LEFT and not e.pressed and dragging:

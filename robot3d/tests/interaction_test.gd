@@ -101,6 +101,55 @@ func run(r):
     await r.get_tree().process_frame
     check(not r.dragging,"belly button press is not a grab")
 
+    # Both right-click and belly request the same host menu without changing mode.
+    r.bridge_file=OS.get_user_data_dir()+"/shared_menu_test.cmd"
+    r.menu.visible=false
+    r._toggle_menu()
+    check(FileAccess.get_file_as_string(r.bridge_file)=="menu","belly requests shared host menu")
+    check(not r.menu.visible and not r.hidden,"shared menu keeps 3D visible")
+    DirAccess.remove_absolute(r.bridge_file)
+    r._hide()
+    var right_click=InputEventMouseButton.new()
+    right_click.button_index=MOUSE_BUTTON_RIGHT
+    right_click.pressed=true
+    r._input(right_click)
+    check(FileAccess.get_file_as_string(r.bridge_file)=="menu","orb right-click uses shared menu")
+    check(r.hidden,"opening orb context menu does not expand the avatar")
+    DirAccess.remove_absolute(r.bridge_file)
+    r.bridge_file=""
+    check(r.small_eye.size==Vector2(64,64),"fluffy orb has room for its fur")
+    check(r.orb_left_eye.size.x==14.0 and r.orb_right_eye.size.x==14.0,"both black eyes are larger")
+    r._show()
+
+    r._begin_hold(Vector2i(100,100))
+    r._update_emotion(1.3)
+    check(r.emotion=="love" and r.heart_eyes[0].visible,"gentle long hold shows heart eyes")
+    r._cancel_hold()
+    r._set_emotion("wink",1.0)
+    r._update_emotion(0.2)
+    check(r.pupils[0].scale.y<0.3 and r.pupils[1].scale.y>0.8,"wink closes only one eye")
+    r._set_emotion("curious",1.0)
+    r._update_emotion(0.2)
+    check(r.pupils[0].scale.y>r.pupils[1].scale.y,"curiosity has asymmetric eyes")
+    r._set_emotion("sleepy",1.0)
+    r._update_emotion(0.2)
+    check(r.pupils[0].scale.y<0.3 and r.pupils[1].scale.y<0.3,"sleepy eyes relax together")
+
+    r._begin_hold(Vector2i(100,100))
+    r._move_hold(Vector2i(160,140),Vector2(60,40))
+    for i in range(30):r._advance_soft_body(1.0/30.0)
+    check(r.robot.scale.y<0.9 and r.robot.scale.x>1.03,"plush visibly compresses while held")
+    check(absf(r.robot.scale.x*r.robot.scale.y*r.robot.scale.z-1.0)<0.001,"squash preserves body volume")
+    r._finish_hold(Vector2i(160,140))
+    var stretched=false
+    for i in range(150):
+        r._advance_soft_body(1.0/30.0)
+        if r.robot.scale.y>1.01:stretched=true
+    check(stretched,"release springs through a gentle stretch")
+    check(absf(r.squish)<0.003 and r.head_lag.length()<0.003,"body and head settle after release")
+    for i in range(20):r._advance_soft_body(0.5)
+    check(r.robot.scale.is_finite(),"slow frames cannot destabilize the spring")
+
     r.feedback.enabled=false
     count=played.size()
     r._hide()
@@ -109,4 +158,4 @@ func run(r):
     r.feedback.cue_played.disconnect(heard_callback)
     r.feedback.player.stop()
     await r.get_tree().create_timer(0.35).timeout
-    print("PASS: real scene emotions, sound PCM, debounce, command priority, voice bridge, orb drag/click, menu and mute" if not failed else "FAIL: interaction regressions")
+    print("PASS: real scene emotions, sound PCM, shared menu, spring stability, fluffy orb, voice bridge and mute" if not failed else "FAIL: interaction regressions")
