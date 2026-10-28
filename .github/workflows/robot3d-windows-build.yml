@@ -1,0 +1,99 @@
+name: Build and publish Windows 3D robot preview v0.1.0
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/robot3d-windows-build.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify separate preview release does not exist
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view 3d-preview-v0.1.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Fetch official stable Godot 4.7.2 Linux editor
+        if: steps.release.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 --retry-delay 4 -o /tmp/godot_linux.zip \
+            'https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip'
+          unzip -q /tmp/godot_linux.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 --version
+      - name: Validate Godot scene scripts and runtime again
+        if: steps.release.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          GODOT='/tmp/Godot_v4.7.2-stable_linux.x86_64'
+          "$GODOT" --headless --path robot3d --editor --quit 2>&1 | tee /tmp/editor.log
+          "$GODOT" --headless --path robot3d --quit-after 75 2>&1 | tee /tmp/run.log
+          if grep -E 'SCRIPT ERROR|Parse Error|ERROR:' /tmp/editor.log /tmp/run.log; then exit 1; fi
+      - name: Download official Windows release export template
+        if: steps.release.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 --retry-delay 4 -o /tmp/export_templates.tpz \
+            'https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_export_templates.tpz'
+          echo 'Template file downloaded:'; ls -lh /tmp/export_templates.tpz
+          unzip -l /tmp/export_templates.tpz | grep -E 'windows_(debug|release)_x86_64.exe|version.txt'
+          TARGET="$HOME/.local/share/godot/export_templates/4.7.2.stable"
+          mkdir -p "$TARGET"
+          unzip -p /tmp/export_templates.tpz templates/windows_release_x86_64.exe > "$TARGET/windows_release_x86_64.exe"
+          unzip -p /tmp/export_templates.tpz templates/windows_debug_x86_64.exe > "$TARGET/windows_debug_x86_64.exe"
+          unzip -p /tmp/export_templates.tpz templates/version.txt > "$TARGET/version.txt"
+          test -s "$TARGET/windows_release_x86_64.exe"
+      - name: Export Windows standalone EXE and PCK
+        if: steps.release.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          /tmp/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path robot3d --export-release 'Windows Desktop' \
+            "$GITHUB_WORKSPACE/dist/MuhammadRobot3D.exe" 2>&1 | tee /tmp/export.log
+          if grep -E 'SCRIPT ERROR|Parse Error|ERROR:' /tmp/export.log; then exit 1; fi
+          test -s dist/MuhammadRobot3D.exe
+          test -s dist/MuhammadRobot3D.pck
+          file dist/MuhammadRobot3D.exe
+          ls -lh dist/
+          sha256sum dist/MuhammadRobot3D.exe dist/MuhammadRobot3D.pck > dist/SHA256SUMS.txt
+          cat > dist/README_UZ.txt <<'README'
+          MUHAMMAD ROBOT - HAQIQIY 3D SINOV (0.1.0)
+          Bu alohida 3D prototip; mavjud Python Robot 2.2.x o'zgarmaydi.
+          Windows 10/11: ZIPni ochib, EXE va PCK ni bitta papkada saqlang.
+          MuhammadRobot3D.exe ni ishga tushiring.
+          Ko'zlar sichqonchaga qaraydi; antenna tabiiy chayqaladi.
+          Kichkina yumaloq qorin tugmasidan 3D menyu ochiladi.
+          Muhim: 3D prototipdagi Python Studio va Run hali mavjud
+          Python dastur bilan ulanmagan. Mavjud robotda ular ishlayveradi.
+          Eski robotni o'chirmang. Prototipni X Exit 3D orqali yoping.
+          Administrator huquqi talab qilinmasligi kerak, lekin maktab
+          qurilmalarida dastur ishga tushirish siyosati cheklashi mumkin.
+          Agar Windows xavfsizlik ogohlantirsa, uni chetlab o'tmang.
+          README
+          cd dist
+          zip -q -9 MuhammadRobot3D-preview-v0.1.0-Windows.zip MuhammadRobot3D.exe MuhammadRobot3D.pck README_UZ.txt SHA256SUMS.txt
+          ls -lh MuhammadRobot3D-preview-v0.1.0-Windows.zip
+      - name: Publish separate prerelease without affecting Python autoupdate
+        if: steps.release.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create 3d-preview-v0.1.0 \
+            dist/MuhammadRobot3D-preview-v0.1.0-Windows.zip \
+            dist/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --title 'Muhammad Robot — true 3D prototype (Windows, preview 0.1.0)' \
+            --notes 'EXPERIMENTAL REAL 3D Windows desktop mascot: shaded cream-white body, low-poly microfur, transparent topmost window, large moving blue eyes, live swinging antenna, mouse-drag reaction. This is a separate portable prototype. It does NOT install or replace Muhammad Robot 2.2.x and its Python Studio/Run UI is not connected yet. First test appearance and performance, then decide whether to integrate through GitHub updater.' \
+            --prerelease
