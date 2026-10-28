@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/publish-3d-v020.yml'
+      - 'robot3d/**'
   workflow_dispatch:
 permissions:
   contents: write
