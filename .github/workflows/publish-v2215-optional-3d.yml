@@ -1,0 +1,59 @@
+name: Publish Muhammad Robot v2.2.15 optional real 3D preview
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v2215-optional-3d.yml'
+      - 'scripts/build_v2215_3d_preview.py'
+      - 'scripts/test_v2215_3d_preview.py'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Do not overwrite immutable published version
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v2.2.15 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'found=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'found=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Download exact proven Python robot + Windows-tested real 3D executable
+        if: steps.existing.outputs.found == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p baseline dist
+          gh release download v2.2.14 --repo "$GITHUB_REPOSITORY" \
+             --pattern 'MuhammadRobot-2.2.14.zip' --dir baseline
+          gh release download 3d-preview-v0.1.0 --repo "$GITHUB_REPOSITORY" \
+             --pattern 'MuhammadRobot3D-preview-v0.1.0-Windows.zip' --dir baseline
+      - name: Repackage 3D into existing robot with optional launch menu
+        if: steps.existing.outputs.found == 'false'
+        run: |
+          python3 scripts/build_v2215_3d_preview.py \
+            baseline/MuhammadRobot-2.2.14.zip \
+            baseline/MuhammadRobot3D-preview-v0.1.0-Windows.zip \
+            dist/MuhammadRobot-2.2.15.zip
+      - name: Run the EXACT deployed ZIP safety validator and verify saved features unchanged
+        if: steps.existing.outputs.found == 'false'
+        run: |
+          python3 scripts/test_v2215_3d_preview.py \
+            baseline/MuhammadRobot-2.2.14.zip dist/MuhammadRobot-2.2.15.zip
+      - name: Publish only if existing updater can install this optional beta safely
+        if: steps.existing.outputs.found == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v2.2.15 dist/MuhammadRobot-2.2.15.zip dist/manifest.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --title 'Muhammad Robot v2.2.15 - Optional Real 3D Preview' \
+            --notes 'Adds official Godot 4.7.2 real-3D cream mascot as an OPTIONAL Try 3D robot (beta) context-menu option. Its Windows-native exe and PCK auto-install through the existing secure GitHub updater, subject to the 100 ZIP entries/80 MB compressed/120 MB unpacked limits. The main Tk robot, English offline microphone, Python Studio, saved scripts, eye orb, and current update mechanism remain unchanged. The standalone 3D visual preview is still separate: its Run and Python Studio buttons are not yet linked, and old working robot remains available. Use right-click > Try 3D robot (beta) to opt in after installing. Do not force the preview to be the default look until it is visually tested on Muhammad laptop.' \
+            --latest
