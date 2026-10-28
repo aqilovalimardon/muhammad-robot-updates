@@ -46,7 +46,12 @@ with zipfile.ZipFile(old) as baseline,zipfile.ZipFile(new) as z:
     extracted=ast.Module(body=[ast.ClassDef(name='SUT',bases=[],keywords=[],decorator_list=[],body=methods)],type_ignores=[])
     ast.fix_missing_locations(extracted)
     fake_scope={}
-    import tkinter as tk
+    try:
+        import tkinter as tk
+    except ImportError:
+        class _DummyTk:
+            TclError=Exception
+        tk=_DummyTk()
     fake_scope['tk']=tk
     with tempfile.TemporaryDirectory() as temp:
         d=Path(temp)
