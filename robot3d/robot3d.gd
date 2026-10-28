@@ -1,6 +1,7 @@
 extends Node3D
 # Muhammad Robot: actual Godot 3D meshes, light, fur, 3D eye & antenna movement.
-# v0.2: exclusive mode handoff, denser plush microfur, springy body, and 5% larger window.
+# v2.2.18: expressive touch reactions and instant, quiet offline feedback sounds.
+const Feedback = preload("res://robot_feedback.gd")
 const DESK_SIZE=Vector2i(176,200)
 const ORB_SIZE=Vector2i(54,54)
 const CREAM=Color(0.89,0.78,0.64)
@@ -23,7 +24,6 @@ var orb_right_eye:Panel
 var old_position=Vector2i.ZERO
 var signal_file=""
 var signal_clock=0.0
-var orb_press_origin=Vector2i.ZERO
 var orb_moved=false
 var blinking=0.0
 var bridge_file=""
@@ -32,6 +32,14 @@ var squish_velocity=0.0
 var spring_head=0.0
 var left_hand:MeshInstance3D
 var right_hand:MeshInstance3D
+var feedback
+var sound_button:Button
+var smile:Node3D
+var surprised_mouth:Node3D
+var emotion="idle"
+var emotion_left=0.0
+var hold_elapsed=0.0
+var hold_excited=false
 
 func _ready():
     var w=get_window()
@@ -55,9 +63,26 @@ func _ready():
     Engine.max_fps=30
     _world()
     _character()
+    feedback=Feedback.new()
+    add_child(feedback)
     _controls()
+    w.focus_exited.connect(_cancel_hold)
     if "--render-test" in OS.get_cmdline_user_args():
         get_tree().create_timer(2.0).timeout.connect(_save_and_quit)
+    if "--interaction-test" in cmd:
+        call_deferred("_run_interaction_tests")
+    elif "--capture-review" in cmd:
+        call_deferred("_capture_review")
+
+func _capture_review():
+    var capture=load("res://tests/capture_review.gd").new()
+    await capture.run(self)
+    get_tree().quit()
+
+func _run_interaction_tests():
+    var test=load("res://tests/interaction_test.gd").new()
+    await test.run(self)
+    get_tree().quit(1 if test.failed else 0)
 
 func _mat(col:Color,rough:float=0.78,emission:float=0.0)->StandardMaterial3D:
     var m=StandardMaterial3D.new()
@@ -189,6 +214,23 @@ func _character():
         _sphere(eye,"DarkPupil",Vector3(0.013,-0.005,0.035),Vector3(0.089,0.132,0.034),dark)
         _sphere(eye,"EyeGlint",Vector3(-0.050,0.070,0.070),Vector3(0.035,0.046,0.012),white)
         pupils.append(eye)
+    var mouth_mat=_mat(ICE,0.8,0.25)
+    smile=Node3D.new()
+    head.add_child(smile)
+    for i in range(10):
+        var x1=-0.12+0.024*i
+        var x2=x1+0.024
+        _rod(smile,"Smile"+str(i),Vector3(x1,-0.255+3.1*x1*x1,0.655),
+             Vector3(x2,-0.255+3.1*x2*x2,0.655),0.012,mouth_mat)
+    surprised_mouth=Node3D.new()
+    head.add_child(surprised_mouth)
+    for i in range(16):
+        var a=TAU*i/16.0
+        var b=TAU*(i+1)/16.0
+        _rod(surprised_mouth,"Oh"+str(i),Vector3(cos(a)*0.036,-0.235+sin(a)*0.042,0.66),
+             Vector3(cos(b)*0.036,-0.235+sin(b)*0.042,0.66),0.009,mouth_mat)
+    smile.visible=false
+    surprised_mouth.visible=false
     _sphere(robot,"ChestRing",Vector3(0,-0.37,0.51),Vector3(0.169,0.169,0.064),white)
     _sphere(robot,"ChestButton",Vector3(0,-0.37,0.568),Vector3(0.113,0.113,0.022),blue)
     # 2,500 tiny 3D fibers are generated once, with no runtime hair physics.
@@ -224,13 +266,16 @@ func _controls():
     menu.add_theme_stylebox_override("panel",style)
     var column=VBoxContainer.new()
     menu.add_child(column)
-    for action in [["▶ Run Python","run"],["✎ Python Studio","editor"],["↩ Switch to Classic","classic"],["− Hide","hide"],["× Exit 3D","exit"]]:
+    for action in [["▶ Run Python","run"],["✎ Python Studio","editor"],["↩ Switch to Classic","classic"],["♪ Sounds: On","sound"],["− Hide","hide"],["× Exit 3D","exit"]]:
         var b=Button.new()
         b.text=action[0]
         b.custom_minimum_size=Vector2(170,28)
         b.flat=true
         b.pressed.connect(_action.bind(action[1]))
         column.add_child(b)
+        if action[1]=="sound":
+            sound_button=b
+            sound_button.text="♪ Sounds: On" if feedback.enabled else "♪ Sounds: Off"
     layer.add_child(menu)
     # Real cream-colored movable two-eye minimized orb, not a text glyph.
     small_eye=Panel.new()
@@ -286,9 +331,15 @@ func _action(command:String):
         # Keep the 3D robot visible while Python Studio is open.
     elif command=="run":
         _bridge("run")
+    elif command=="sound":
+        var on=feedback.toggle_enabled()
+        sound_button.text="♪ Sounds: On" if on else "♪ Sounds: Off"
+        menu.visible=true
 
 func _hide():
     if hidden:return
+    _cancel_hold()
+    feedback.play_cue("close")
     hidden=true
     menu.visible=false
     robot.visible=false
@@ -298,12 +349,15 @@ func _hide():
     get_window().size=ORB_SIZE
     var screen=DisplayServer.screen_get_size()
     get_window().position=Vector2i(16,maxi(8,screen.y-110))
-    Engine.max_fps=12
+    Engine.max_fps=24
 
 func _show():
     if not hidden:return
     hidden=false
     dragging=false
+    feedback.play_cue("open")
+    _set_emotion("happy",0.75)
+    squish_velocity=-0.8
     robot.visible=true
     belly.visible=true
     small_eye.visible=false
@@ -316,11 +370,14 @@ func _show():
 func _listen_to_python_voice(delta:float):
     if signal_file.is_empty():return
     signal_clock+=delta
-    if signal_clock<0.12:return
+    if signal_clock<0.025:return
     signal_clock=0.0
     if not FileAccess.file_exists(signal_file):return
-    var data=FileAccess.get_file_as_string(signal_file).strip_edges()
-    DirAccess.remove_absolute(signal_file)
+    # Claim this complete message before reading, so a new command is not deleted.
+    var claimed=signal_file+".reading"
+    if DirAccess.rename_absolute(signal_file,claimed)!=OK:return
+    var data=FileAccess.get_file_as_string(claimed).strip_edges()
+    DirAccess.remove_absolute(claimed)
     if data=="hide":
         _hide()
     elif data=="show":
@@ -329,6 +386,7 @@ func _listen_to_python_voice(delta:float):
 func _process(delta:float):
     t+=minf(delta,0.05)
     _listen_to_python_voice(delta)
+    _update_emotion(delta)
     if hidden:
         # Black eyes follow nearby mouse, even while only the 54px orb exists.
         var mouse=DisplayServer.mouse_get_position()-get_window().position
@@ -369,50 +427,102 @@ func _process(delta:float):
     if blinking>3.1:
         var p=blinking-3.1
         var h=1.0-0.8*sin(clampf(p/0.18,0,1)*PI)
-        for eye in pupils:eye.scale.y=h
+        for eye in pupils:eye.scale.y*=h
         if p>0.18:blinking=0.0
+
+func _set_emotion(value:String,duration:float):
+    emotion=value
+    emotion_left=duration
+    blinking=0.0
+
+func _update_emotion(delta:float):
+    emotion_left=maxf(0.0,emotion_left-delta)
+    if dragging:
+        hold_elapsed+=delta
+        if emotion_left<=0.0:emotion="happy"
+    elif emotion_left<=0.0:
+        emotion="idle"
+    var eye_scale=Vector3.ONE
+    if emotion=="surprised":eye_scale=Vector3(1.12,1.12,1.0)
+    elif emotion=="happy":eye_scale=Vector3(1.07,0.64,1.0)
+    elif emotion=="excited":eye_scale=Vector3(1.12,0.80,1.0)
+    for i in range(pupils.size()):
+        pupils[i].scale=pupils[i].scale.lerp(eye_scale,minf(1.0,delta*16.0))
+        var tilt=0.10 if i==0 else -0.10
+        pupils[i].rotation.z=lerpf(pupils[i].rotation.z,
+            tilt if emotion in ["happy","excited"] else 0.0,minf(1.0,delta*12.0))
+    smile.visible=emotion in ["happy","excited"]
+    surprised_mouth.visible=emotion=="surprised"
+    # The two black eyes on the small cream orb react to touch as well.
+    var eye_height=9.0 if dragging else 12.0
+    for eye in [orb_left_eye,orb_right_eye]:
+        eye.size.y=lerpf(eye.size.y,eye_height,minf(1.0,delta*16.0))
+
+func _begin_hold(pointer:Vector2i):
+    dragging=true
+    orb_moved=false
+    hold_elapsed=0.0
+    hold_excited=false
+    drag_from=pointer
+    window_from=get_window().position
+    _set_emotion("surprised",0.25)
+    squish_velocity=0.6
+    feedback.play_cue("grab")
+
+func _move_hold(pointer:Vector2i,relative:Vector2):
+    if not dragging:return
+    var diff=pointer-drag_from
+    if diff.length()>6.0:orb_moved=true
+    if hidden:
+        var screen=DisplayServer.screen_get_size()
+        get_window().position=Vector2i(clampi(window_from.x+diff.x,0,maxi(0,screen.x-ORB_SIZE.x)),
+            clampi(window_from.y+diff.y,0,maxi(0,screen.y-ORB_SIZE.y)))
+    else:
+        get_window().position=window_from+diff
+        drag_v=clampf(relative.x*0.45,-16.0,16.0)
+    if relative.length()>14.0 and hold_elapsed>0.15 and not hold_excited:
+        hold_excited=true
+        _set_emotion("excited",0.45)
+        feedback.play_cue("excited")
+
+func _finish_hold(pointer:Vector2i):
+    if not dragging:return
+    dragging=false
+    if hidden and not orb_moved and (pointer-drag_from).length()<7.0:
+        _show()
+    else:
+        _set_emotion("happy",0.65)
+        squish_velocity=-0.65
+        feedback.play_cue("release")
+
+func _cancel_hold():
+    dragging=false
+    drag_v=0.0
+    _set_emotion("idle",0.0)
 
 func _input(e:InputEvent):
     # Right click directly on the 3D robot opens the SAME mode switch menu.
     if e is InputEventMouseButton and e.button_index==MOUSE_BUTTON_RIGHT and e.pressed:
+        _cancel_hold()
         if hidden:_show()
         menu.visible=not menu.visible
         get_viewport().set_input_as_handled()
         return
-    if e is InputEventMouseButton and e.button_index==MOUSE_BUTTON_LEFT:
-        if hidden:
-            if e.pressed:
-                dragging=true
-                orb_moved=false
-                drag_from=DisplayServer.mouse_get_position()
-                window_from=get_window().position
-            elif dragging:
-                var movement=DisplayServer.mouse_get_position()-drag_from
-                dragging=false
-                if movement.length()<7.0 and not orb_moved:
-                    _show()
-            return
-        if e.pressed:
-            if e.position.distance_to(Vector2(88,145))<23:return
-            dragging=true
-            drag_from=DisplayServer.mouse_get_position()
-            window_from=get_window().position
-        else:
-            dragging=false
+    if e is InputEventMouseButton and e.button_index==MOUSE_BUTTON_LEFT and not e.pressed and dragging:
+        _finish_hold(DisplayServer.mouse_get_position())
+        get_viewport().set_input_as_handled()
     if e is InputEventMouseMotion and dragging:
-        var now=DisplayServer.mouse_get_position()
-        var diff=now-drag_from
-        if hidden:
-            if diff.length()>6.0:orb_moved=true
-            var screen=DisplayServer.screen_get_size()
-            get_window().position=Vector2i(clampi(window_from.x+diff.x,0,screen.x-ORB_SIZE.x),
-                clampi(window_from.y+diff.y,0,screen.y-ORB_SIZE.y))
-        else:
-            get_window().position=window_from+diff
-            drag_v=float(diff.x)
+        _move_hold(DisplayServer.mouse_get_position(),e.relative)
+        get_viewport().set_input_as_handled()
     if e is InputEventKey and e.pressed and e.keycode==KEY_ESCAPE:
         if menu.visible:menu.visible=false
         else:_hide()
+
+func _unhandled_input(e:InputEvent):
+    # Menu and belly buttons consume presses before any grab sound/reaction.
+    if e is InputEventMouseButton and e.button_index==MOUSE_BUTTON_LEFT and e.pressed:
+        _begin_hold(DisplayServer.mouse_get_position())
+        get_viewport().set_input_as_handled()
 
 func _save_and_quit():
     var im=get_viewport().get_texture().get_image()
