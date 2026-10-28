@@ -1,0 +1,48 @@
+name: Test Muhammad Robot actual 3D prototype
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/robot3d-validation.yml'
+      - 'robot3d/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download verified official Godot 4.7.2 Linux editor
+        run: |
+          set -euxo pipefail
+          curl -fL --retry 3 --connect-timeout 25 \
+            -o /tmp/godot_linux.zip \
+            https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip
+          mkdir -p /tmp/godot
+          unzip -q /tmp/godot_linux.zip -d /tmp/godot
+          ls -l /tmp/godot
+          chmod +x /tmp/godot/Godot_v4.7.2-stable_linux.x86_64
+          /tmp/godot/Godot_v4.7.2-stable_linux.x86_64 --version
+      - name: Parse the complete Godot 3D project and import scenes
+        run: |
+          set -euxo pipefail
+          /tmp/godot/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path robot3d --editor --quit 2>&1 | tee /tmp/editor.log
+          if grep -E 'SCRIPT ERROR|Parse Error|ERROR:' /tmp/editor.log; then exit 1; fi
+      - name: Launch the 3D scene for 90 simulation frames
+        run: |
+          set -euxo pipefail
+          /tmp/godot/Godot_v4.7.2-stable_linux.x86_64 \
+            --headless --path robot3d --quit-after 90 2>&1 | tee /tmp/run.log
+          if grep -E 'SCRIPT ERROR|Parse Error|ERROR:' /tmp/run.log; then exit 1; fi
+      - name: Upload compile logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: godot3d-smoke-logs
+          path: |
+            /tmp/editor.log
+            /tmp/run.log
+          if-no-files-found: ignore
