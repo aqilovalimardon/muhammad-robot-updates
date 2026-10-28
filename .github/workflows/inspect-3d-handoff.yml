@@ -1,0 +1,33 @@
+name: Inspect current Python desktop mascot handoff
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/inspect-3d-handoff.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read actual currently shipped v2.2.15 Python window/3D lifecycle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/mrobot
+          gh release download v2.2.15 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.15.zip' --dir /tmp/mrobot
+          python3 - <<'PY'
+          import zipfile,re
+          with zipfile.ZipFile('/tmp/mrobot/MuhammadRobot-2.2.15.zip') as z:
+              s=z.read('app/robot_app.py').decode('utf-8').splitlines()
+              print('ZIP_FILES',len(z.namelist()))
+              for i,l in enumerate(s):
+                  if l.startswith('    def ') and any(t in l for t in ('open_real3d_preview','restore','minimize','animate','_poll_updates','_restart','background_update_check','quick_run','open_editor','_show_menu','_show_aqua_menu','on_close','exit','start_microphone','__init__')):
+                      print('==========',i+1,l)
+                      for j in range(i,min(len(s),i+57)):
+                          print(f'{j+1:04d}: {s[j]}')
+              for i,l in enumerate(s):
+                  if any(t in l for t in ('self.menu.add_command','self.root.protocol','self.root.after(','HERE =','self.root.withdraw','self.root.deiconify','self.root.quit','self.root.destroy','self.root.geometry','self.root.state(')):
+                      print('HIT',i+1,l)
+          PY
