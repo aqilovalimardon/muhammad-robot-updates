@@ -1,0 +1,57 @@
+name: Publish Muhammad Robot v2.2.16 - exclusive Classic or 3D plush
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v2216-exclusive-3d.yml'
+      - 'scripts/build_v2216_exclusive_3d.py'
+      - 'scripts/test_v2216_exclusive_3d.py'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Avoid updating an immutable published tag
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v2.2.16 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'yes=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'yes=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Download verified stable 2.2.15 and Windows-tested Godot 0.2.0
+        if: steps.existing.outputs.yes == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p baseline dist
+          gh release download v2.2.15 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.15.zip' --dir baseline
+          gh release download 3d-preview-v0.2.0 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot3D-preview-v0.2.0-Windows.zip' --dir baseline
+      - name: Assemble 3D/classic one-robot switch, keeping all Python code and user memory separate
+        if: steps.existing.outputs.yes == 'false'
+        run: |
+          python3 scripts/build_v2216_exclusive_3d.py \
+            baseline/MuhammadRobot-2.2.15.zip \
+            baseline/MuhammadRobot3D-preview-v0.2.0-Windows.zip \
+            dist/MuhammadRobot-2.2.16.zip
+      - name: Unit-test exclusive visual mode, real Python Run and Studio bridge, safe ZIP
+        if: steps.existing.outputs.yes == 'false'
+        run: |
+          python3 scripts/test_v2216_exclusive_3d.py \
+            baseline/MuhammadRobot-2.2.15.zip dist/MuhammadRobot-2.2.16.zip
+      - name: Publish only after all old updater and Python functionality tests pass
+        if: steps.existing.outputs.yes == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v2.2.16 dist/MuhammadRobot-2.2.16.zip dist/manifest.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --title 'Muhammad Robot v2.2.16 — One Robot, Real 3D Plush' \
+            --notes 'Classic/3D are mutually exclusive desktop surfaces: switching to real 3D withdraws the Classic robot and its recovery orb, and right-click in the 3D window > Switch to Classic quits 3D and restores Classic. A 3D crash also automatically restores Classic. The working Python Studio is accessible from 3D (returning to Classic editor), and Run Python uses a minimal local-only command bridge. Real Godot v0.2 Windows-tested 3D has a 5% larger window (176x200), 2500 static 3D plush microfibers, elastic springy body/arms when tugged and released, eye tracking and a moving antenna. No admin, extra Python packages, user data upload, forced reinstallation, or safety-limit bypass.' \
+            --latest
