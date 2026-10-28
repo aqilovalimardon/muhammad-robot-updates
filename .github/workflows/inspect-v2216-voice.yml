@@ -1,0 +1,30 @@
+name: Inspect v2.2.16 voice and startup transitions
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/inspect-v2216-voice.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read key voice, editor, hide and automatic updater sections
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/inspect
+          gh release download v2.2.16 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.16.zip' --dir /tmp/inspect
+          python3 - <<'PY'
+          import zipfile
+          z=zipfile.ZipFile('/tmp/inspect/MuhammadRobot-2.2.16.zip')
+          s=z.read('app/robot_app.py').decode('utf-8').splitlines()
+          print('TOTAL LINES',len(s))
+          spans=[(285,400),(460,570),(590,665),(880,965),(975,1130)]
+          for a,b in spans:
+              print('=========',a,b)
+              for i in range(a-1,min(b,len(s))):
+                  print(f'{i+1:04d}: {s[i]}')
+          PY
