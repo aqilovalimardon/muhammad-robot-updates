@@ -1,0 +1,91 @@
+name: Build and validate cream orb 3D v0.3.0 for Windows
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-3d-v030.yml'
+      - 'robot3d/**'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  linux-export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install official Godot 4.7.2 and Windows export templates
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -o /tmp/godot.zip 'https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip'
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+          curl -fL --retry 3 -o /tmp/templates.tpz 'https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_export_templates.tpz'
+          TARGET="$HOME/.local/share/godot/export_templates/4.7.2.stable"
+          mkdir -p "$TARGET"
+          unzip -p /tmp/templates.tpz templates/windows_release_x86_64.exe > "$TARGET/windows_release_x86_64.exe"
+          unzip -p /tmp/templates.tpz templates/windows_debug_x86_64.exe > "$TARGET/windows_debug_x86_64.exe"
+          unzip -p /tmp/templates.tpz templates/version.txt > "$TARGET/version.txt"
+      - name: Parse GDScript, run scene headless, and export full Windows real 3D
+        run: |
+          set -euo pipefail
+          GODOT=/tmp/Godot_v4.7.2-stable_linux.x86_64
+          "$GODOT" --headless --path robot3d --editor --quit 2>&1 | tee /tmp/editor.log
+          "$GODOT" --headless --path robot3d --quit-after 100 2>&1 | tee /tmp/run.log
+          if grep -E 'SCRIPT ERROR|Parse Error|ERROR:' /tmp/editor.log /tmp/run.log; then exit 1; fi
+          mkdir -p dist
+          "$GODOT" --headless --path robot3d --export-release 'Windows Desktop' "$GITHUB_WORKSPACE/dist/MuhammadRobot3D.exe" 2>&1 | tee /tmp/export.log
+          if grep -E 'SCRIPT ERROR|Parse Error|ERROR:' /tmp/export.log; then exit 1; fi
+          test -s dist/MuhammadRobot3D.exe
+          test -s dist/MuhammadRobot3D.pck
+          file dist/MuhammadRobot3D.exe
+          cd dist
+          sha256sum MuhammadRobot3D.exe MuhammadRobot3D.pck > SHA256SUMS.txt
+          printf 'Muhammad Robot 3D v0.3.0\n176x200 transparent real-3D preview; more fluffy fibers, antenna movement, elastic mouse dragging.\nRight-click: Switch to Classic.\nMain Python robot manages exclusive mode.\n' > README_UZ.txt
+          zip -q -9 MuhammadRobot3D-preview-v0.3.0-Windows.zip MuhammadRobot3D.exe MuhammadRobot3D.pck README_UZ.txt SHA256SUMS.txt
+          ls -lh MuhammadRobot3D-preview-v0.3.0-Windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: muhammad3d-v030-windows
+          path: dist/MuhammadRobot3D-preview-v0.3.0-Windows.zip
+          retention-days: 3
+
+  windows-test:
+    needs: linux-export
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: muhammad3d-v030-windows
+          path: preview
+      - name: Run actual Godot EXE on Windows for 100 frames
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Expand-Archive -LiteralPath 'preview/MuhammadRobot3D-preview-v0.3.0-Windows.zip' -DestinationPath 'preview/unpacked'
+          $exe=(Resolve-Path 'preview/unpacked/MuhammadRobot3D.exe').Path
+          $p=Start-Process -FilePath $exe -ArgumentList '--headless','--quit-after','100' -Wait -PassThru -NoNewWindow
+          if ($p.ExitCode -ne 0) {throw "Windows real 3D failed: $($p.ExitCode)"}
+          Write-Output 'PASS: 3D renderer starts on Windows'
+
+  publish:
+    needs: windows-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: muhammad3d-v030-windows
+          path: preview
+      - name: Release Windows-tested experimental 3D visual runtime
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view 3d-preview-v0.3.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'Already published immutable tag'; exit 0
+          fi
+          gh release create 3d-preview-v0.3.0 preview/MuhammadRobot3D-preview-v0.3.0-Windows.zip \
+            --repo "$GITHUB_REPOSITORY" --prerelease \
+            --title 'Muhammad Robot true 3D v0.3.0 - Plush and 5% Larger' \
+            --notes 'Actual Godot 4.7.2 real-time 3D. 176x200 (5% larger). 2500 prebuilt short 3D fur triangles. Springy soft torso compression and rebound when dragged, animated arms/head, swaying antenna and following pupils. Right-click menu can switch to Classic; mini-orb is cream with two black eyes; Python host v2.2.16 handles exclusive mode and Run/Editor bridge. This remains an optional beta until user visually approves.'
