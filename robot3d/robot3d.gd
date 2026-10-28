@@ -289,7 +289,7 @@ func _process(delta:float):
     spring_head=lerpf(spring_head,clampf(drag_v*-0.012,-0.18,0.18),minf(1,delta*7))
     head.rotation.z=lerpf(head.rotation.z,spring_head,minf(1,delta*9))
     left_hand.rotation.z=lerpf(left_hand.rotation.z,-0.26-squish*0.9,minf(1,delta*8))
-    right_hand.rotation.z=lerpf(right_hand.rotation.z,0.26+squish*0.9,minf(1,delta*8)
+    right_hand.rotation.z=lerpf(right_hand.rotation.z,0.26+squish*0.9,minf(1,delta*8))
     var cursor=DisplayServer.mouse_get_position()-get_window().position
     var offset=Vector2(cursor.x-88.0,cursor.y-100.0)
     if offset.length()>160:offset=Vector2.ZERO
