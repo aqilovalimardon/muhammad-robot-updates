@@ -1,0 +1,32 @@
+name: Windows smoke-test actual 3D prototype
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/robot3d-windows-smoke.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-test:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download immutable GitHub 3D preview ZIP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $u = 'https://github.com/aqilovalimardon/muhammad-robot-updates/releases/download/3d-preview-v0.1.0/MuhammadRobot3D-preview-v0.1.0-Windows.zip'
+          Invoke-WebRequest -Uri $u -OutFile "$env:RUNNER_TEMP\robot3d.zip"
+          Expand-Archive -LiteralPath "$env:RUNNER_TEMP\robot3d.zip" -DestinationPath "$env:RUNNER_TEMP\robot3d"
+          Get-ChildItem "$env:RUNNER_TEMP\robot3d"
+      - name: Check true Windows native executable and data pack
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $base = "$env:RUNNER_TEMP\robot3d"
+          if (-not (Test-Path "$base\MuhammadRobot3D.exe")) { throw 'EXE missing' }
+          if (-not (Test-Path "$base\MuhammadRobot3D.pck")) { throw 'PCK missing' }
+          $p = Start-Process -FilePath "$base\MuhammadRobot3D.exe" -ArgumentList '--headless', '--quit-after', '80' -Wait -PassThru -NoNewWindow
+          if ($p.ExitCode -ne 0) { throw "Godot Windows prototype failed: $($p.ExitCode)" }
+          Write-Output 'Windows Godot 3D headless runtime PASS'
