@@ -3,7 +3,7 @@ extends Node3D
 # v0.2: exclusive mode handoff, denser plush microfur, springy body, and 5% larger window.
 const DESK_SIZE=Vector2i(176,200)
 const ORB_SIZE=Vector2i(54,54)
-const CREAM=Color(0.96,0.927,0.875)
+const CREAM=Color(0.89,0.78,0.64)
 const ICE=Color(0.61,0.88,1.0)
 var robot:Node3D
 var head:Node3D
@@ -17,7 +17,14 @@ var drag_v=0.0
 var hidden=false
 var menu:PanelContainer
 var belly:Button
-var small_eye:Label
+var small_eye:Panel
+var orb_left_eye:Panel
+var orb_right_eye:Panel
+var old_position=Vector2i.ZERO
+var signal_file=""
+var signal_clock=0.0
+var orb_press_origin=Vector2i.ZERO
+var orb_moved=false
 var blinking=0.0
 var bridge_file=""
 var squish=0.0
@@ -37,8 +44,12 @@ func _ready():
     var idx=cmd.find("--robot-bridge")
     if idx>=0 and idx+1<cmd.size():
         bridge_file=cmd[idx+1]
+    var sig=cmd.find("--robot-signal")
+    if sig>=0 and sig+1<cmd.size():
+        signal_file=cmd[sig+1]
     var screen=DisplayServer.screen_get_size()
-    w.position=Vector2i(maxi(0,screen.x-210),90)
+    w.position=Vector2i(maxi(0,screen.x-220),90)
+    old_position=w.position
     get_viewport().transparent_bg=true
     RenderingServer.set_default_clear_color(Color(0,0,0,0))
     Engine.max_fps=30
@@ -93,7 +104,7 @@ func _world():
     e.background_mode=Environment.BG_CLEAR_COLOR
     e.ambient_light_source=Environment.AMBIENT_SOURCE_COLOR
     e.ambient_light_color=Color(0.79,0.85,1.0)
-    e.ambient_light_energy=0.75
+    e.ambient_light_energy=0.45
     env_node.environment=e
     add_child(env_node)
     var cam=Camera3D.new()
@@ -105,12 +116,12 @@ func _world():
     cam.current=true
     var key=DirectionalLight3D.new()
     key.light_color=Color(1.0,0.94,0.87)
-    key.light_energy=2.1
+    key.light_energy=1.15
     key.rotation_degrees=Vector3(-32,-35,0)
     add_child(key)
     var rim=DirectionalLight3D.new()
     rim.light_color=Color(0.48,0.75,1.0)
-    rim.light_energy=0.65
+    rim.light_energy=0.40
     rim.rotation_degrees=Vector3(15,140,0)
     add_child(rim)
 
@@ -146,12 +157,12 @@ func _fur(parent:Node3D,origin:Vector3,axes:Vector3,amount:int,head_fur:bool,cre
 
 func _character():
     var cream=_mat(CREAM,0.94)
-    var soft=_mat(Color(1.0,0.974,0.928),0.85)
+    var soft=_mat(Color(0.93,0.84,0.72),0.91)
     var black=_mat(Color(0.014,0.019,0.061),0.13)
     var blue=_mat(Color(0.29,0.61,1.0),0.22,1.8)
     var white=_mat(Color(0.94,0.98,1.0),0.24,0.6)
     var dark=_mat(Color(0.012,0.046,0.22),0.13)
-    var fur_mat=_mat(Color(0.988,0.956,0.901),0.99)
+    var fur_mat=_mat(Color(0.94,0.86,0.75),0.99)
     fur_mat.cull_mode=BaseMaterial3D.CULL_DISABLED
     robot=Node3D.new()
     robot.name="MuhammadReal3D"
@@ -221,13 +232,32 @@ func _controls():
         b.pressed.connect(_action.bind(action[1]))
         column.add_child(b)
     layer.add_child(menu)
-    small_eye=Label.new()
-    small_eye.text="◉ ◉"
+    # Real cream-colored movable two-eye minimized orb, not a text glyph.
+    small_eye=Panel.new()
+    small_eye.name="CreamEyeOrb"
     small_eye.visible=false
-    small_eye.position=Vector2(8,8)
-    small_eye.add_theme_font_size_override("font_size",19)
-    small_eye.add_theme_color_override("font_color",Color(0.48,0.89,1))
+    small_eye.position=Vector2(2,2)
+    small_eye.size=Vector2(50,50)
+    small_eye.mouse_filter=Control.MOUSE_FILTER_IGNORE
+    var orb_style=StyleBoxFlat.new()
+    orb_style.bg_color=Color(0.88,0.77,0.62,1.0)
+    orb_style.border_color=Color(0.97,0.88,0.75,1.0)
+    orb_style.set_border_width_all(2)
+    orb_style.set_corner_radius_all(25)
+    small_eye.add_theme_stylebox_override("panel",orb_style)
     layer.add_child(small_eye)
+    orb_left_eye=Panel.new()
+    orb_right_eye=Panel.new()
+    var black_eye_style=StyleBoxFlat.new()
+    black_eye_style.bg_color=Color(0.015,0.013,0.025,1.0)
+    black_eye_style.set_corner_radius_all(6)
+    for eye in [orb_left_eye,orb_right_eye]:
+        eye.size=Vector2(10,12)
+        eye.mouse_filter=Control.MOUSE_FILTER_IGNORE
+        eye.add_theme_stylebox_override("panel",black_eye_style)
+        small_eye.add_child(eye)
+    orb_left_eye.position=Vector2(12,19)
+    orb_right_eye.position=Vector2(28,19)
 
 func _toggle_menu():
     if not hidden:menu.visible=not menu.visible
@@ -253,29 +283,59 @@ func _action(command:String):
         get_tree().quit()
     elif command=="editor":
         _bridge("editor")
-        get_tree().quit()
+        # Keep the 3D robot visible while Python Studio is open.
     elif command=="run":
         _bridge("run")
 
 func _hide():
+    if hidden:return
     hidden=true
+    menu.visible=false
     robot.visible=false
     belly.visible=false
     small_eye.visible=true
+    old_position=get_window().position
     get_window().size=ORB_SIZE
-    Engine.max_fps=8
+    var screen=DisplayServer.screen_get_size()
+    get_window().position=Vector2i(16,maxi(8,screen.y-110))
+    Engine.max_fps=12
 
 func _show():
+    if not hidden:return
     hidden=false
+    dragging=false
     robot.visible=true
     belly.visible=true
     small_eye.visible=false
     get_window().size=DESK_SIZE
+    var screen=DisplayServer.screen_get_size()
+    get_window().position=Vector2i(clampi(old_position.x,0,maxi(0,screen.x-DESK_SIZE.x)),
+                                   clampi(old_position.y,0,maxi(0,screen.y-DESK_SIZE.y)))
     Engine.max_fps=30
+
+func _listen_to_python_voice(delta:float):
+    if signal_file.is_empty():return
+    signal_clock+=delta
+    if signal_clock<0.12:return
+    signal_clock=0.0
+    if not FileAccess.file_exists(signal_file):return
+    var data=FileAccess.get_file_as_string(signal_file).strip_edges()
+    DirAccess.remove_absolute(signal_file)
+    if data=="hide":
+        _hide()
+    elif data=="show":
+        _show()
 
 func _process(delta:float):
     t+=minf(delta,0.05)
-    if hidden:return
+    _listen_to_python_voice(delta)
+    if hidden:
+        # Black eyes follow nearby mouse, even while only the 54px orb exists.
+        var mouse=DisplayServer.mouse_get_position()-get_window().position
+        var aim=(Vector2(mouse)-Vector2(27,27)).limit_length(130.0)*0.018
+        orb_left_eye.position=Vector2(12,19)+aim
+        orb_right_eye.position=Vector2(28,19)+aim
+        return
     robot.position.y=0.026*sin(t*2.2)
     antenna.rotation.z=0.28*sin(t*3.4)+0.035*sin(t*5.7)-clampf(drag_v*0.003,-0.15,0.15)
     antenna.rotation.x=0.10*sin(t*2.7)
@@ -321,19 +381,35 @@ func _input(e:InputEvent):
         return
     if e is InputEventMouseButton and e.button_index==MOUSE_BUTTON_LEFT:
         if hidden:
-            if e.pressed:_show()
+            if e.pressed:
+                dragging=true
+                orb_moved=false
+                drag_from=DisplayServer.mouse_get_position()
+                window_from=get_window().position
+            elif dragging:
+                var movement=DisplayServer.mouse_get_position()-drag_from
+                dragging=false
+                if movement.length()<7.0 and not orb_moved:
+                    _show()
             return
         if e.pressed:
             if e.position.distance_to(Vector2(88,145))<23:return
             dragging=true
             drag_from=DisplayServer.mouse_get_position()
             window_from=get_window().position
-        else:dragging=false
+        else:
+            dragging=false
     if e is InputEventMouseMotion and dragging:
         var now=DisplayServer.mouse_get_position()
         var diff=now-drag_from
-        get_window().position=window_from+diff
-        drag_v=float(diff.x)
+        if hidden:
+            if diff.length()>6.0:orb_moved=true
+            var screen=DisplayServer.screen_get_size()
+            get_window().position=Vector2i(clampi(window_from.x+diff.x,0,screen.x-ORB_SIZE.x),
+                clampi(window_from.y+diff.y,0,screen.y-ORB_SIZE.y))
+        else:
+            get_window().position=window_from+diff
+            drag_v=float(diff.x)
     if e is InputEventKey and e.pressed and e.keycode==KEY_ESCAPE:
         if menu.visible:menu.visible=false
         else:_hide()
