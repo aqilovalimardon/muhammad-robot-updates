@@ -6,7 +6,7 @@ func run(r):
     var output=OS.get_environment("ROBOT_REVIEW_DIR")
     if output.is_empty():output=OS.get_user_data_dir()+"/review"
     DirAccess.make_dir_recursive_absolute(output)
-    for state in ["idle","surprised","happy","excited","wink","love","curious","sleepy"]:
+    for state in ["idle","laugh","angry","surprised","happy","excited","wink","love","curious","sleepy"]:
         r._set_emotion(state,10.0)
         for i in range(15):r._process(1.0/30.0)
         await RenderingServer.frame_post_draw

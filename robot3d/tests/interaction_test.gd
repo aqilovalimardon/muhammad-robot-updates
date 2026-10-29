@@ -13,9 +13,9 @@ func run(r):
     r.feedback.enabled=true
     var heard_callback=func(cue):played.append(cue)
     r.feedback.cue_played.connect(heard_callback)
-    for cue in ["grab","excited","release","close","open"]:
+    for cue in ["grab","excited","release","close","open","grumpy","laugh"]:
         var sound:AudioStreamWAV=r.feedback.sounds[cue]
-        check(sound.get_length()>0.05 and sound.get_length()<0.25,cue+" must be short")
+        check(sound.get_length()>0.05 and sound.get_length()<(0.5 if cue=="laugh" else 0.25),cue+" must be short")
         var pcm=sound.data
         var peak=0
         for i in range(0,pcm.size(),2):peak=maxi(peak,absi(pcm.decode_s16(i)))
@@ -138,7 +138,7 @@ func run(r):
     r._begin_hold(Vector2i(100,100))
     r._move_hold(Vector2i(160,140),Vector2(60,40))
     for i in range(30):r._advance_soft_body(1.0/30.0)
-    check(r.robot.scale.y<0.9 and r.robot.scale.x>1.03,"plush visibly compresses while held")
+    check(r.robot.scale.y<0.83 and r.robot.scale.x>1.10,"plush compresses more softly than v2.2.19: "+str(r.robot.scale))
     check(absf(r.robot.scale.x*r.robot.scale.y*r.robot.scale.z-1.0)<0.001,"squash preserves body volume")
     r._finish_hold(Vector2i(160,140))
     var stretched=false
@@ -150,12 +150,91 @@ func run(r):
     for i in range(20):r._advance_soft_body(0.5)
     check(r.robot.scale.is_finite(),"slow frames cannot destabilize the spring")
 
+    # Hover strokes must reach the actual deformed 3D body, with no held button.
+    r._cancel_hold()
+    r._update_emotion(0.1)
+    r.menu.visible=false
+    r.feedback.command_until_ms=0
+    r.feedback.next_touch_ms=0
+    var camera=r.get_viewport().get_camera_3d()
+    var cheek=camera.unproject_position(r.head.global_position)
+    check(r._pointer_on_plush(cheek),"pet hit test finds the actual head")
+    check(not r._pointer_on_plush(Vector2(1,190)),"transparent corners are not pettable")
+    var before_position=r.get_window().position
+    count=played.size()
+    for i in range(10):r._pet_motion(cheek,Vector2(8,0))
+    check(r.emotion!="laugh","one-way pointer movement is not rubbing")
+    r._reset_pet()
+    for i in range(16):r._pet_motion(cheek,Vector2(0.4 if i%2==0 else -0.4,0))
+    check(r.emotion!="laugh","stationary mouse jitter is ignored")
+    for i in range(3):
+        r._pet_motion(cheek,Vector2(18,0))
+        r._advance_pet(0.4)
+        r._pet_motion(cheek,Vector2(-18,0))
+        r._advance_pet(0.4)
+    check(r.emotion!="laugh","separate passes do not accumulate into rubbing")
+    r._reset_pet()
+    # Dispatch through the real viewport so GUI filtering and mouse-up behavior apply.
+    for i in range(12):
+        var motion=InputEventMouseMotion.new()
+        var direction=1.0 if (i/3)%2==0 else -1.0
+        motion.position=cheek+Vector2(float(i%3-1)*8.0,0)
+        motion.relative=Vector2(10.0*direction,0)
+        motion.button_mask=0
+        Input.parse_input_event(motion)
+        await r.get_tree().process_frame
+    r._update_emotion(0.05)
+    check(r.emotion=="laugh" and r.laugh_mouth.visible and r.laugh_eyes[0].visible,"real hover rubbing makes laughing eyes and mouth")
+    check(not r.dragging and r.get_window().position==before_position,"rubbing never moves the desktop robot")
+    check(played.size()==count+1 and played.back()=="laugh","rubbing plays one short giggle")
+    check(not r.feedback.play_cue("grab"),"incidental cues cannot chop a giggle")
+    for i in range(60):r._pet_motion(cheek,Vector2(20.0 if (i/2)%2==0 else -20.0,0))
+    check(played.size()==count+1,"continued rubbing does not flood giggles")
+    r._hide()
+    check(played.back()=="close","close interrupts the giggle without a queue")
+    for i in range(12):r._pet_motion(cheek,Vector2(20.0 if i%2==0 else -20.0,0))
+    check(r.emotion!="laugh","closed orb does not start an invisible laugh")
+    r._show()
+    r._cancel_hold()
+    r.menu.visible=true
+    for i in range(12):r._pet_motion(cheek,Vector2(20.0 if i%2==0 else -20.0,0))
+    check(r.emotion!="laugh","an open menu prevents pet gestures")
+    r.menu.visible=false
+    r._begin_hold(Vector2i(100,100))
+    for i in range(12):r._pet_motion(cheek,Vector2(20.0 if i%2==0 else -20.0,0))
+    check(r.emotion=="surprised","dragging cannot become hover rubbing")
+    r._cancel_hold()
+
+    for i in range(3):
+        r._begin_hold(Vector2i(100,100))
+        r._finish_hold(Vector2i(100,100))
+    r._update_emotion(0.1)
+    check(r.emotion=="angry" and r.angry_face.visible,"three quick taps show playful grumpiness")
+    check(r.pupils[0].rotation.z<0.0 and r.pupils[1].rotation.z>0.0,"grumpy eyes slant inwards")
+    check(not r.smile.visible and not r.laugh_mouth.visible,"grumpy face clears happy mouths")
+    r._update_emotion(2.0)
+    check(r.emotion=="idle" and not r.angry_face.visible,"anger settles by itself")
+    r.emotion_cycle=0
+    r._show_next_emotion()
+    check(r.emotion=="laugh","shared emotion menu includes laughter")
+    r._show_next_emotion()
+    check(r.emotion=="angry","shared emotion menu includes anger")
+    r.antenna_glow.update_glow(1.0,"laugh",1.0)
+    check(r.antenna_glow.halo.texture.get_width()==96,"antenna uses a cached soft radial texture")
+    check(r.antenna_glow.tint.r>0.95 and r.antenna_glow.light.light_energy>0.3,"laughter warms the real antenna light")
+    r.antenna_glow.update_glow(2.0,"angry",1.0)
+    check(r.antenna_glow.tint.r>r.antenna_glow.tint.b,"anger softly warms the antenna rays")
+    r._cancel_hold()
+
     r.feedback.enabled=false
     count=played.size()
+    r.laugh_cooldown=0.0
+    for i in range(12):r._pet_motion(cheek,Vector2(20.0 if (i/2)%2==0 else -20.0,0))
+    check(r.emotion=="laugh" and played.size()==count,"muted petting stays expressive and silent")
     r._hide()
     r._show()
     check(played.size()==count and not r.hidden,"mute keeps open/close working")
     r.feedback.cue_played.disconnect(heard_callback)
     r.feedback.player.stop()
     await r.get_tree().create_timer(0.35).timeout
-    print("PASS: real scene emotions, sound PCM, shared menu, spring stability, fluffy orb, voice bridge and mute" if not failed else "FAIL: interaction regressions")
+    print("PASS: real scene emotions, hover rubbing and giggle debounce, playful anger, antenna glow, sound PCM, shared menu, softer spring stability, fluffy orb, voice bridge and mute" if not failed else "FAIL: interaction regressions")

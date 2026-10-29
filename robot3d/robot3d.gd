@@ -1,8 +1,9 @@
 extends Node3D
 # Muhammad Robot: actual Godot 3D meshes, light, fur, 3D eye & antenna movement.
-# v2.2.19: shared host menu, springy plush body, fluffy orb and richer emotions.
+# v2.2.20: pet-to-giggle, playful grumpiness, softer springs and antenna light.
 const Feedback = preload("res://robot_feedback.gd")
 const PlushOrb = preload("res://plush_orb.gd")
+const AntennaGlow = preload("res://antenna_glow.gd")
 const DESK_SIZE=Vector2i(176,200)
 const ORB_SIZE=Vector2i(64,64)
 const CREAM=Color(0.89,0.78,0.64)
@@ -52,6 +53,19 @@ var head_lag_velocity=Vector2.ZERO
 var drag_force=Vector2.ZERO
 var left_foot:MeshInstance3D
 var right_foot:MeshInstance3D
+var pet_surfaces:Array[MeshInstance3D]=[]
+var laugh_eyes:Array[Node3D]=[]
+var laugh_mouth:Node3D
+var angry_face:Node3D
+var antenna_glow
+var pet_distance=0.0
+var pet_reversals=0
+var pet_axis=Vector2.ZERO
+var pet_stroke=0.0
+var pet_gap=0.0
+var laugh_cooldown=0.0
+var tap_count=0
+var last_tap_ms=-1000
 
 func _ready():
     var w=get_window()
@@ -146,10 +160,10 @@ func _world():
     add_child(env_node)
     var cam=Camera3D.new()
     cam.projection=Camera3D.PROJECTION_ORTHOGONAL
-    cam.size=3.0
-    cam.position=Vector3(0.0,0.18,5.1)
+    cam.size=3.2
+    cam.position=Vector3(0.0,0.26,5.1)
     add_child(cam)
-    cam.look_at(Vector3(0,0.18,0),Vector3.UP)
+    cam.look_at(Vector3(0,0.26,0),Vector3.UP)
     cam.current=true
     var key=DirectionalLight3D.new()
     key.light_color=Color(1.0,0.94,0.87)
@@ -204,18 +218,20 @@ func _character():
     robot=Node3D.new()
     robot.name="MuhammadReal3D"
     add_child(robot)
-    _sphere(robot,"RoundedBody",Vector3(0,-0.32,0.02),Vector3(0.59,0.61,0.45),cream)
+    pet_surfaces.append(_sphere(robot,"RoundedBody",Vector3(0,-0.32,0.02),Vector3(0.59,0.61,0.45),cream))
     left_hand=_sphere(robot,"LeftHand",Vector3(-0.63,-0.24,0),Vector3(0.21,0.32,0.22),soft)
     left_hand.rotation_degrees.z=-15
     right_hand=_sphere(robot,"RightHand",Vector3(0.63,-0.24,0),Vector3(0.21,0.32,0.22),soft)
     right_hand.rotation_degrees.z=15
+    pet_surfaces.append(left_hand)
+    pet_surfaces.append(right_hand)
     left_foot=_sphere(robot,"FootLeft",Vector3(-0.30,-0.80,0.18),Vector3(0.29,0.22,0.30),soft)
     right_foot=_sphere(robot,"FootRight",Vector3(0.30,-0.80,0.18),Vector3(0.29,0.22,0.30),soft)
     head=Node3D.new()
     head.name="Head"
     head.position=Vector3(0,0.34,0)
     robot.add_child(head)
-    _sphere(head,"SoftFurryHead",Vector3.ZERO,Vector3(0.67,0.67,0.52),cream)
+    pet_surfaces.append(_sphere(head,"SoftFurryHead",Vector3.ZERO,Vector3(0.67,0.67,0.52),cream))
     _sphere(head,"Black3DVisor",Vector3(0,-0.045,0.50),Vector3(0.49,0.32,0.145),black)
     for x in [-0.22,0.22]:
         var eye=Node3D.new()
@@ -244,6 +260,7 @@ func _character():
              Vector3(cos(b)*0.036,-0.235+sin(b)*0.042,0.66),0.009,mouth_mat)
     smile.visible=false
     surprised_mouth.visible=false
+    _expressive_face(mouth_mat)
     _sphere(robot,"ChestRing",Vector3(0,-0.37,0.51),Vector3(0.169,0.169,0.064),white)
     _sphere(robot,"ChestButton",Vector3(0,-0.37,0.568),Vector3(0.113,0.113,0.022),blue)
     # 2,500 tiny 3D fibers are generated once, with no runtime hair physics.
@@ -256,6 +273,41 @@ func _character():
     _rod(antenna,"Lower",Vector3.ZERO,Vector3(0.09,0.22,0),0.044,soft)
     _rod(antenna,"Upper",Vector3(0.09,0.22,0),Vector3(0.16,0.37,0),0.035,soft)
     _sphere(antenna,"GlowingBall",Vector3(0.16,0.41,0),Vector3(0.14,0.14,0.14),white)
+    antenna_glow=AntennaGlow.new()
+    antenna_glow.position=Vector3(0.16,0.41,0)
+    antenna.add_child(antenna_glow)
+
+func _expressive_face(mouth_mat:Material):
+    for center in [-0.22,0.22]:
+        var eye=Node3D.new()
+        head.add_child(eye)
+        for i in range(10):
+            var a=-0.12+float(i)*0.024
+            var b=a+0.024
+            _rod(eye,"LaughEye"+str(i),Vector3(center+a,0.07-4.0*a*a,0.72),
+                Vector3(center+b,0.07-4.0*b*b,0.72),0.022,mouth_mat)
+        eye.visible=false
+        laugh_eyes.append(eye)
+    laugh_mouth=Node3D.new()
+    head.add_child(laugh_mouth)
+    for i in range(16):
+        var a=PI*float(i)/16.0
+        var b=PI*float(i+1)/16.0
+        _rod(laugh_mouth,"LaughMouth"+str(i),Vector3(cos(a)*0.13,-0.17-sin(a)*0.10,0.69),
+            Vector3(cos(b)*0.13,-0.17-sin(b)*0.10,0.69),0.015,mouth_mat)
+    _rod(laugh_mouth,"MouthTop",Vector3(-0.13,-0.17,0.69),Vector3(0.13,-0.17,0.69),0.012,mouth_mat)
+    laugh_mouth.visible=false
+    angry_face=Node3D.new()
+    head.add_child(angry_face)
+    var warm=_mat(Color("ffc2a0"),0.8,0.35)
+    _rod(angry_face,"LeftBrow",Vector3(-0.36,0.17,0.73),Vector3(-0.09,0.07,0.73),0.024,warm)
+    _rod(angry_face,"RightBrow",Vector3(0.09,0.07,0.73),Vector3(0.36,0.17,0.73),0.024,warm)
+    for i in range(10):
+        var a=-0.10+float(i)*0.02
+        var b=a+0.02
+        _rod(angry_face,"Frown"+str(i),Vector3(a,-0.20-3.0*a*a,0.68),
+            Vector3(b,-0.20-3.0*b*b,0.68),0.014,warm)
+    angry_face.visible=false
 
 func _heart_eye(x:float)->MeshInstance3D:
     var st=SurfaceTool.new()
@@ -282,6 +334,7 @@ func _heart_eye(x:float)->MeshInstance3D:
 func _controls():
     var layer=CanvasLayer.new()
     add_child(layer)
+    get_window().mouse_exited.connect(_reset_pet)
     belly=Button.new()
     belly.name="BellyButton"
     belly.position=Vector2(69,129)
@@ -430,6 +483,7 @@ func _listen_to_python_voice(delta:float):
 func _process(delta:float):
     t+=minf(delta,0.05)
     _listen_to_python_voice(delta)
+    _advance_pet(delta)
     _update_emotion(delta)
     if hidden:
         # The larger black dots track the pointer on the fluffy cream pom-pom.
@@ -439,6 +493,9 @@ func _process(delta:float):
         orb_right_eye.position=Vector2(35,24)+aim
         return
     _advance_soft_body(delta)
+    antenna_glow.update_glow(t,emotion,delta)
+    var camera=get_viewport().get_camera_3d()
+    belly.position=camera.unproject_position(robot.to_global(Vector3(0,-0.37,0.57)))-belly.size*0.5
     var cursor=DisplayServer.mouse_get_position()-get_window().position
     var offset=Vector2(cursor.x-88.0,cursor.y-100.0)
     if offset.length()>160:offset=Vector2.ZERO
@@ -466,27 +523,32 @@ func _advance_soft_body(delta:float):
     while remaining>0.0:
         var step=minf(remaining,1.0/120.0)
         remaining-=step
-        var target=clampf(0.14+absf(drag_force.x)*0.07+drag_force.y*0.08,0.04,0.28) if dragging else 0.0
-        squish_velocity+=((target-squish)*72.0-squish_velocity*7.8)*step
-        squish=clampf(squish+squish_velocity*step,-0.17,0.30)
-        var offset_target=-drag_force*0.10 if dragging else Vector2.ZERO
-        soft_velocity+=((offset_target-soft_offset)*68.0-soft_velocity*8.5)*step
+        var target=clampf(0.22+absf(drag_force.x)*0.09+drag_force.y*0.10,0.06,0.34) if dragging else 0.0
+        if emotion=="laugh" and not dragging:target=0.04+0.055*sin(t*18.0)
+        squish_velocity+=((target-squish)*48.0-squish_velocity*5.8)*step
+        squish=clampf(squish+squish_velocity*step,-0.20,0.36)
+        var offset_target=-drag_force*0.14 if dragging else Vector2.ZERO
+        soft_velocity+=((offset_target-soft_offset)*46.0-soft_velocity*6.8)*step
         soft_offset+=soft_velocity*step
-        head_lag_velocity+=((soft_offset*1.5-head_lag)*45.0-head_lag_velocity*6.5)*step
+        head_lag_velocity+=((soft_offset*1.7-head_lag)*32.0-head_lag_velocity*5.4)*step
         head_lag+=head_lag_velocity*step
         drag_force=drag_force.move_toward(Vector2.ZERO,step*2.3)
     var height=1.0-squish
     var width=1.0/sqrt(height)
     robot.scale=Vector3(width,height,width)
-    robot.position=Vector3(soft_offset.x,0.026*sin(t*2.2)-soft_offset.y,0.0)
+    var giggle_bounce=0.018*sin(t*18.0) if emotion=="laugh" else 0.0
+    robot.position=Vector3(soft_offset.x,0.026*sin(t*2.2)-soft_offset.y+giggle_bounce,0.0)
     robot.rotation.z=clampf(-soft_offset.x*1.8,-0.22,0.22)
     var tilt=-0.15 if emotion=="curious" else (0.10 if emotion=="sleepy" else 0.0)
+    if emotion=="laugh":tilt=0.045*sin(t*13.0)
+    elif emotion=="angry":tilt=0.055*sin(t*7.0)
     head.position=Vector3(head_lag.x,0.34-head_lag.y+squish*0.18,0.0)
     head.rotation.z=clampf(-head_lag.x*2.3+tilt,-0.30,0.30)
     # Face, torso and limbs lag differently, then gently wobble back into place.
-    head.scale=Vector3(1.0-squish*0.18,1.0+squish*0.22,1.0)
-    left_hand.rotation.z=-0.26-squish*1.8+head_lag.x*2.0
-    right_hand.rotation.z=0.26+squish*1.8+head_lag.x*2.0
+    head.scale=Vector3(1.0-squish*0.15,1.0+squish*0.18,1.0)
+    var arms=0.25 if emotion=="angry" else (0.16*sin(t*13.0) if emotion=="laugh" else 0.0)
+    left_hand.rotation.z=-0.26-squish*2.1+head_lag.x*2.0-arms
+    right_hand.rotation.z=0.26+squish*2.1+head_lag.x*2.0+arms
     left_hand.position.y=-0.24+head_lag.y*0.8
     right_hand.position.y=-0.24-head_lag.y*0.8
     left_foot.rotation.z=-squish*0.6-soft_offset.x
@@ -501,8 +563,10 @@ func _set_emotion(value:String,duration:float):
     idle_elapsed=0.0
 
 func _show_next_emotion():
-    var choices=["wink","love","curious","sleepy","happy"]
+    var choices=["laugh","angry","wink","love","curious","sleepy","happy"]
     _set_emotion(choices[emotion_cycle%choices.size()],1.8)
+    if emotion=="laugh":feedback.play_cue("laugh")
+    elif emotion=="angry":feedback.play_cue("grumpy")
     emotion_cycle+=1
 
 func _update_emotion(delta:float):
@@ -525,25 +589,32 @@ func _update_emotion(delta:float):
     elif emotion=="happy":eye_scale=Vector3(1.07,0.64,1.0)
     elif emotion=="excited":eye_scale=Vector3(1.12,0.80,1.0)
     elif emotion=="sleepy":eye_scale=Vector3(1.04,0.22,1.0)
+    elif emotion=="angry":eye_scale=Vector3(1.04,0.52,1.0)
     for i in range(pupils.size()):
         var target_scale=eye_scale
         if emotion=="wink":target_scale=Vector3(1.06,0.13 if i==0 else 1.02,1.0)
         elif emotion=="curious":target_scale=Vector3(1.03,1.10 if i==0 else 0.65,1.0)
-        pupils[i].visible=emotion!="love"
+        pupils[i].visible=emotion not in ["love","laugh"]
         heart_eyes[i].visible=emotion=="love"
+        laugh_eyes[i].visible=emotion=="laugh"
         heart_eyes[i].scale=Vector3.ONE*(1.0+0.05*sin(t*5.0))
         pupils[i].scale=pupils[i].scale.lerp(target_scale,minf(1.0,delta*16.0))
         var tilt=0.10 if i==0 else -0.10
+        if emotion=="angry":tilt=-0.20 if i==0 else 0.20
         pupils[i].rotation.z=lerpf(pupils[i].rotation.z,
-            tilt if emotion in ["happy","excited"] else 0.0,minf(1.0,delta*12.0))
+            tilt if emotion in ["happy","excited","angry"] else 0.0,minf(1.0,delta*12.0))
     smile.visible=emotion in ["happy","excited","wink","love"]
     surprised_mouth.visible=emotion=="surprised"
+    laugh_mouth.visible=emotion=="laugh"
+    laugh_mouth.scale.y=1.0+0.10*sin(t*18.0) if emotion=="laugh" else 1.0
+    angry_face.visible=emotion=="angry"
     # The two black eyes on the small cream orb react to touch as well.
     var eye_height=11.0 if dragging else 16.0
     for eye in [orb_left_eye,orb_right_eye]:
         eye.size.y=lerpf(eye.size.y,eye_height,minf(1.0,delta*16.0))
 
 func _begin_hold(pointer:Vector2i):
+    _reset_pet()
     dragging=true
     orb_moved=false
     hold_elapsed=0.0
@@ -552,7 +623,7 @@ func _begin_hold(pointer:Vector2i):
     drag_from=pointer
     window_from=get_window().position
     _set_emotion("surprised",0.25)
-    squish_velocity=1.0
+    squish_velocity=1.2
     feedback.play_cue("grab")
 
 func _move_hold(pointer:Vector2i,relative:Vector2):
@@ -578,11 +649,24 @@ func _finish_hold(pointer:Vector2i):
     if hidden and not orb_moved and (pointer-drag_from).length()<7.0:
         _show()
     else:
-        _set_emotion("wink" if not orb_moved and hold_elapsed<0.25 else "happy",0.85)
-        squish_velocity=-1.1
-        feedback.play_cue("release")
+        var quick_tap=not hidden and not orb_moved and hold_elapsed<0.25
+        var now=Time.get_ticks_msec()
+        if quick_tap:
+            tap_count=tap_count+1 if now-last_tap_ms<650 else 1
+            last_tap_ms=now
+        else:tap_count=0
+        if tap_count>=3:
+            tap_count=0
+            _set_emotion("angry",1.8)
+            feedback.play_cue("grumpy")
+        else:
+            _set_emotion("wink" if quick_tap else "happy",0.85)
+            feedback.play_cue("release")
+        squish_velocity=-1.25
 
 func _cancel_hold():
+    _reset_pet()
+    tap_count=0
     dragging=false
     drag_v=0.0
     drag_force=Vector2.ZERO
@@ -609,6 +693,64 @@ func _unhandled_input(e:InputEvent):
     if e is InputEventMouseButton and e.button_index==MOUSE_BUTTON_LEFT and e.pressed:
         _begin_hold(DisplayServer.mouse_get_position())
         get_viewport().set_input_as_handled()
+    elif e is InputEventMouseMotion and e.button_mask==0:
+        _pet_motion(e.position,e.relative)
+
+func _pointer_on_plush(point:Vector2)->bool:
+    # Intersect the actual moving ellipsoids, not the transparent window rectangle.
+    var camera=get_viewport().get_camera_3d()
+    var origin=camera.project_ray_origin(point)
+    var direction=camera.project_ray_normal(point)
+    for surface in pet_surfaces:
+        var inverse=surface.global_transform.affine_inverse()
+        var o=inverse*origin
+        var d=inverse.basis*direction
+        var a=d.dot(d)
+        var b=2.0*o.dot(d)
+        var c=o.dot(o)-1.0
+        var discriminant=b*b-4.0*a*c
+        if discriminant>=0.0 and (-b+sqrt(discriminant))/(2.0*a)>=0.0:return true
+    return false
+
+func _reset_pet():
+    pet_distance=0.0
+    pet_reversals=0
+    pet_axis=Vector2.ZERO
+    pet_stroke=0.0
+    pet_gap=0.0
+
+func _advance_pet(delta:float):
+    laugh_cooldown=maxf(0.0,laugh_cooldown-delta)
+    pet_gap+=delta
+    if pet_gap>0.32:_reset_pet()
+
+func _pet_motion(point:Vector2,relative:Vector2):
+    if hidden or dragging or menu.visible or belly.get_global_rect().has_point(point):
+        _reset_pet()
+        return
+    if not _pointer_on_plush(point) or relative.length()>70.0:
+        _reset_pet()
+        return
+    var distance=relative.length()
+    if distance<1.5:return # Ignore mouse jitter.
+    pet_gap=0.0
+    var direction=relative.normalized()
+    if pet_axis==Vector2.ZERO:pet_axis=direction
+    elif direction.dot(pet_axis)<-0.35:
+        if pet_stroke>=9.0:pet_reversals+=1
+        pet_axis=direction
+        pet_stroke=0.0
+    pet_stroke+=distance
+    pet_distance+=minf(distance,30.0)
+    if pet_reversals>=2 and pet_distance>=80.0:
+        _set_emotion("laugh",1.4)
+        if laugh_cooldown<=0.0:
+            feedback.play_cue("laugh")
+            laugh_cooldown=2.4
+        # Keep the happy pose during continued rubbing, but rate-limit the audio.
+        pet_distance=0.0
+        pet_reversals=0
+        squish_velocity+=0.3
 
 func _save_and_quit():
     var im=get_viewport().get_texture().get_image()

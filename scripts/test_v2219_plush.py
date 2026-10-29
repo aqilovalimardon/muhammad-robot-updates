@@ -23,17 +23,18 @@ def selected_class(source, name, methods, scope):
     return scope[name]
 
 
-def main(baseline, output):
+def main(baseline, output, expected_version='2.2.19', expected_changed=None):
     baseline, output = Path(baseline), Path(output)
     manifest = json.loads((output.parent / 'manifest.json').read_text())
     with zipfile.ZipFile(baseline) as old, zipfile.ZipFile(output) as new:
         assert new.testzip() is None and new.namelist() == old.namelist()
         changed = {n for n in old.namelist() if old.read(n) != new.read(n)}
-        assert changed == {'app/robot_app.py', 'app/robot_core.py',
-                           'app/visual3d/MuhammadRobot3D.pck'}, changed
+        if expected_changed is None:
+            expected_changed = {'app/robot_app.py', 'app/robot_core.py', 'app/visual3d/MuhammadRobot3D.pck'}
+        assert changed == expected_changed, changed
         app = new.read('app/robot_app.py').decode('utf-8')
         core = new.read('app/robot_core.py').decode('utf-8')
-        assert "APP_VERSION = '2.2.19'" in core
+        assert f"APP_VERSION = '{expected_version}'" in core
         for item in new.namelist():
             if item.endswith('.py'):
                 compile(new.read(item), item, 'exec')
