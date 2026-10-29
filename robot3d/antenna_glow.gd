@@ -11,14 +11,14 @@ func _ready():
             var p=(Vector2(x,y)-Vector2(47.5,47.5))/47.5
             var radius=p.length()
             if radius>=1.0:continue
-            var haze=exp(-radius*radius*5.5)*pow(1.0-radius,0.7)*0.52
-            var rays=pow(absf(cos(p.angle()*3.0)),24.0)*0.20
-            rays*=smoothstep(0.20,0.38,radius)*pow(1.0-radius,1.6)
+            var haze=exp(-radius*radius*3.0)*pow(1.0-radius,0.55)*0.65
+            var rays=pow(absf(cos(p.angle()*3.0)),18.0)*0.44
+            rays*=smoothstep(0.20,0.38,radius)*pow(1.0-radius,0.9)
             picture.set_pixel(x,y,Color(1,1,1,haze+rays))
     halo=Sprite3D.new()
     halo.name="SoftAntennaRays"
     halo.texture=ImageTexture.create_from_image(picture)
-    halo.pixel_size=0.007
+    halo.pixel_size=0.008
     halo.billboard=BaseMaterial3D.BILLBOARD_ENABLED
     halo.shaded=false
     halo.position.z=0.15
