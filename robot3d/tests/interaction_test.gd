@@ -226,6 +226,41 @@ func run(r):
     check(r.antenna_glow.tint.r>r.antenna_glow.tint.b,"anger softly warms the antenna rays")
     r._cancel_hold()
 
+    r._begin_hold(Vector2i(100,100))
+    for x in [125,150,175,200]:
+        r._move_hold(Vector2i(x,100),Vector2(25,0))
+        r._advance_shake(0.06)
+    check(r.emotion!="dizzy","ordinary one-way dragging is not shaking")
+    r._cancel_hold()
+    r._begin_hold(Vector2i(100,100))
+    for x in [160,100,160,100]:
+        r._move_hold(Vector2i(x,100),Vector2(60,0))
+        r._advance_shake(0.4)
+    check(r.emotion!="dizzy","slow direction changes do not cause dizziness")
+    r._cancel_hold()
+    r._begin_hold(Vector2i(100,100))
+    for x in [160,100,160,100]:
+        r._move_hold(Vector2i(x,100),Vector2(60,0))
+        r._advance_shake(0.06)
+    r._update_emotion(0.01)
+    check(r.emotion=="dizzy" and r.dizzy_eyes[0].visible and r.dizzy_mouth.visible,"deliberate shaking shows two spiral eyes and a wobbly mouth")
+    check(not r.pupils[0].visible and not r.laugh_eyes[0].visible,"spirals replace the normal pupils")
+    var angle=r.dizzy_eyes[0].rotation.z
+    r.t+=0.2
+    r._update_emotion(0.01)
+    check(absf(r.dizzy_eyes[0].rotation.z-angle)>0.5,"spiral eyes really rotate over time")
+    r._finish_hold(Vector2i(100,100))
+    check(r.emotion=="dizzy" and not r.dragging,"dizzy effect continues briefly after release")
+    r._update_emotion(2.5)
+    check(r.emotion=="idle" and not r.dizzy_eyes[0].visible,"dizziness settles automatically")
+    r._hide()
+    r._begin_hold(Vector2i(100,100))
+    for x in [160,100,160,100]:r._move_hold(Vector2i(x,100),Vector2(60,0))
+    check(r.emotion!="dizzy","closed orb dragging does not animate hidden spirals")
+    r._cancel_hold()
+    r._show()
+    r._cancel_hold()
+
     r.feedback.enabled=false
     count=played.size()
     r.laugh_cooldown=0.0
@@ -237,4 +272,4 @@ func run(r):
     r.feedback.cue_played.disconnect(heard_callback)
     r.feedback.player.stop()
     await r.get_tree().create_timer(0.35).timeout
-    print("PASS: real scene emotions, hover rubbing and giggle debounce, playful anger, antenna glow, sound PCM, shared menu, softer spring stability, fluffy orb, voice bridge and mute" if not failed else "FAIL: interaction regressions")
+    print("PASS: real scene emotions, deliberate shake and rotating dizzy eyes, hover rubbing and giggle debounce, playful anger, antenna glow, sound PCM, shared menu, softer spring stability, fluffy orb, voice bridge and mute" if not failed else "FAIL: interaction regressions")

@@ -1,0 +1,168 @@
+name: Validate and publish v2.2.21 voice recovery and dizzy eyes
+on:
+  push:
+    branches: [main, feature/voice-dizzy]
+    paths:
+      - 'robot3d/**'
+      - 'runtime/**'
+      - 'scripts/test_v2221_windows_voice.py'
+      - 'scripts/make_voice_fixtures.ps1'
+      - 'scripts/build_v2221_voice.py'
+      - 'scripts/test_v2219_plush.py'
+      - 'scripts/test_v2221_voice.py'
+      - 'scripts/test_v2219_native_menu.py'
+      - '.github/workflows/publish-v2221-voice.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: emotions-v2221-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Godot and virtual display
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 --connect-timeout 25 -o /tmp/godot.zip 'https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip'
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x /tmp/Godot_v4.7.2-stable_linux.x86_64
+          sudo apt-get update -qq
+          sudo apt-get install -y xvfb libgl1-mesa-dri python3-tk
+      - name: Import, exercise real scene, export resource pack
+        run: |
+          set -euo pipefail
+          GODOT=/tmp/Godot_v4.7.2-stable_linux.x86_64
+          "$GODOT" --headless --path robot3d --editor --quit 2>&1 | tee /tmp/import.log
+          "$GODOT" --headless --path robot3d -- --interaction-test 2>&1 | tee /tmp/interaction.log
+          grep -q 'PASS: real scene emotions' /tmp/interaction.log
+          mkdir -p dist review
+          "$GODOT" --headless --path robot3d --export-pack 'Windows Desktop' "$GITHUB_WORKSPACE/dist/MuhammadRobot3D.pck" 2>&1 | tee /tmp/export.log
+          if grep -E 'SCRIPT ERROR|Parse Error|ERROR:' /tmp/import.log /tmp/interaction.log /tmp/export.log; then exit 1; fi
+      - name: Capture actual rendered expressions and generated sound samples
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          ROBOT_REVIEW_DIR: ${{ github.workspace }}/review
+        run: |
+          set -euo pipefail
+          xvfb-run -a /tmp/Godot_v4.7.2-stable_linux.x86_64 --audio-driver Dummy --path robot3d -- --capture-review 2>&1 | tee /tmp/render.log
+          if grep -E 'SCRIPT ERROR|Parse Error|ERROR:' /tmp/render.log; then exit 1; fi
+          test -s review/dizzy.png
+          test -s review/laugh.png
+          test -s review/angry.png
+          test -s review/laugh.wav
+          test -s review/open.wav
+      - name: Build exact versioned ZIP and verify existing host behavior
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p baseline
+          gh release download v2.2.20 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.20.zip' --dir baseline
+          python3 scripts/build_v2221_voice.py baseline/MuhammadRobot-2.2.20.zip dist/MuhammadRobot3D.pck dist/MuhammadRobot-2.2.21.zip
+          python3 scripts/test_v2221_voice.py baseline/MuhammadRobot-2.2.20.zip dist/MuhammadRobot-2.2.21.zip
+          xvfb-run -a /usr/bin/python3 scripts/test_v2219_native_menu.py baseline/MuhammadRobot-2.2.20.zip dist/MuhammadRobot-2.2.21.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: robot-v2221-package
+          path: |
+            dist/MuhammadRobot-2.2.21.zip
+            dist/manifest.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: robot-v2221-review
+          path: |
+            review/
+            /tmp/import.log
+            /tmp/interaction.log
+            /tmp/export.log
+            /tmp/render.log
+
+  windows-test:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: robot-v2221-package
+          path: package
+      - name: Run exported Windows EXE with actual packaged interaction tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Expand-Archive -LiteralPath 'package/MuhammadRobot-2.2.21.zip' -DestinationPath 'installed'
+          $exe=(Resolve-Path 'installed/app/visual3d/MuhammadRobot3D.exe').Path
+          $log=Join-Path $PWD 'windows-interaction.log'
+          $p=Start-Process -FilePath $exe -ArgumentList '--headless','--log-file',"`"$log`"",'--','--interaction-test' -PassThru -NoNewWindow
+          if (-not $p.WaitForExit(90000)) { $p.Kill(); throw 'Windows interaction test timed out' }
+          if ($p.ExitCode -ne 0) { throw "Windows test failed: $($p.ExitCode)" }
+          $text=Get-Content -Raw $log
+          Write-Output $text
+          if ($text -notmatch 'PASS: real scene emotions' -or $text -match 'SCRIPT ERROR|Parse Error|ERROR:') { throw 'Windows interaction assertions did not pass' }
+      - name: Verify the actual shared Tk menu on Windows
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force baseline | Out-Null
+          gh release download v2.2.20 --repo "$env:GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.20.zip' --dir baseline
+          if ($LASTEXITCODE -ne 0) { throw 'Baseline download failed' }
+          python scripts/test_v2219_native_menu.py baseline/MuhammadRobot-2.2.20.zip package/MuhammadRobot-2.2.21.zip
+          if ($LASTEXITCODE -ne 0) { throw 'Native context menu check failed' }
+      - name: Generate actual offline Windows voice samples
+        shell: powershell
+        run: ./scripts/make_voice_fixtures.ps1
+      - name: Recognize real audio and drive the shipped 3D robot
+        timeout-minutes: 4
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --disable-pip-version-check vosk==0.3.45
+          if ($LASTEXITCODE -ne 0) { throw 'Test recognizer install failed' }
+          python scripts/test_v2221_voice.py baseline/MuhammadRobot-2.2.20.zip package/MuhammadRobot-2.2.21.zip
+          if ($LASTEXITCODE -ne 0) { throw 'Voice recovery checks failed' }
+          python scripts/test_v2221_windows_voice.py package/MuhammadRobot-2.2.21.zip voice-fixtures
+          if ($LASTEXITCODE -ne 0) { throw 'Actual voice integration failed' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: robot-v2221-windows-log
+          path: |
+            windows-interaction.log
+            windows-voice-integration.log
+            voice-fixtures/
+
+  publish:
+    if: github.ref == 'refs/heads/main'
+    needs: windows-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: robot-v2221-package
+          path: package
+      - name: Publish immutable update after Linux and Windows checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v2.2.21 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'Existing release retained'; exit 0
+          fi
+          gh release create v2.2.21 package/MuhammadRobot-2.2.21.zip package/manifest.json \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest \
+            --title 'Muhammad Robot v2.2.21 - Voice recovery and dizzy spiral eyes' \
+            --notes 'Restores Hello robot, Close robot and Open robot for an already-installed microphone. Transient input failures reconnect without disabling the saved voice setting, stale listener events cannot stop a new session, and a stopped audio callback is detected. Neural speech has a short timeout and falls back to Windows speech; downloading no longer pauses the microphone, playback is bounded, and self-speech is filtered at capture time. Stable Open/Close recognition is dispatched promptly without duplicate final commands. Deliberate back-and-forth shaking while dragging shows rotating spiral eyes and a wobbly head, then settles. Preserves normal dragging, cream orb, petting laughter, menu, primary 3D and Python Studio. Validated with generated Windows speech through Vosk, actual host commands and the packaged Godot EXE, plus native menu and updater checks.'

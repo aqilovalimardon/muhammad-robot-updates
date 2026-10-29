@@ -1,6 +1,6 @@
 extends Node3D
 # Muhammad Robot: actual Godot 3D meshes, light, fur, 3D eye & antenna movement.
-# v2.2.20: pet-to-giggle, playful grumpiness, softer springs and antenna light.
+# v2.2.21: recovered voice bridge and dizzy spiral eyes after deliberate shaking.
 const Feedback = preload("res://robot_feedback.gd")
 const PlushOrb = preload("res://plush_orb.gd")
 const AntennaGlow = preload("res://antenna_glow.gd")
@@ -66,6 +66,15 @@ var pet_gap=0.0
 var laugh_cooldown=0.0
 var tap_count=0
 var last_tap_ms=-1000
+var dizzy_eyes:Array[Node3D]=[]
+var dizzy_mouth:Node3D
+var shake_last=Vector2i.ZERO
+var shake_axis=Vector2.ZERO
+var shake_distance=0.0
+var shake_stroke=0.0
+var shake_reversals=0
+var shake_elapsed=0.0
+var shake_gap=0.0
 
 func _ready():
     var w=get_window()
@@ -97,6 +106,8 @@ func _ready():
         get_tree().create_timer(2.0).timeout.connect(_save_and_quit)
     if "--interaction-test" in cmd:
         call_deferred("_run_interaction_tests")
+    elif "--voice-integration-test" in cmd:
+        call_deferred("_run_voice_bridge_test")
     elif "--capture-review" in cmd:
         call_deferred("_capture_review")
 
@@ -109,6 +120,10 @@ func _run_interaction_tests():
     var test=load("res://tests/interaction_test.gd").new()
     await test.run(self)
     get_tree().quit(1 if test.failed else 0)
+
+func _run_voice_bridge_test():
+    var test=load("res://tests/voice_bridge_test.gd").new()
+    await test.run(self)
 
 func _mat(col:Color,rough:float=0.78,emission:float=0.0)->StandardMaterial3D:
     var m=StandardMaterial3D.new()
@@ -308,6 +323,39 @@ func _expressive_face(mouth_mat:Material):
         _rod(angry_face,"Frown"+str(i),Vector3(a,-0.20-3.0*a*a,0.68),
             Vector3(b,-0.20-3.0*b*b,0.68),0.014,warm)
     angry_face.visible=false
+    for x in [-0.22,0.22]:
+        var eye=Node3D.new()
+        eye.position=Vector3(x,-0.01,0.73)
+        head.add_child(eye)
+        var ribbon=SurfaceTool.new()
+        ribbon.begin(Mesh.PRIMITIVE_TRIANGLES)
+        for i in range(64):
+            var points:PackedVector3Array=[]
+            for j in [i,i+1]:
+                var angle=float(j)/64.0*TAU*2.15
+                var radius=0.012+float(j)/64.0*0.13
+                var outward=Vector3(cos(angle),sin(angle),0)
+                points.append(outward*(radius-0.009))
+                points.append(outward*(radius+0.009))
+            for k in [0,1,2,1,3,2]:
+                ribbon.set_normal(Vector3(0,0,1))
+                ribbon.add_vertex(points[k])
+        var mesh=MeshInstance3D.new()
+        mesh.mesh=ribbon.commit()
+        var mat=_mat(Color("c4ddff"),0.8,0.4)
+        mat.cull_mode=BaseMaterial3D.CULL_DISABLED
+        mesh.material_override=mat
+        eye.add_child(mesh)
+        eye.visible=false
+        dizzy_eyes.append(eye)
+    dizzy_mouth=Node3D.new()
+    head.add_child(dizzy_mouth)
+    for i in range(12):
+        var a=-0.12+float(i)*0.02
+        var b=a+0.02
+        _rod(dizzy_mouth,"WobblyMouth"+str(i),Vector3(a,-0.23+sin(a*55.0)*0.019,0.70),
+            Vector3(b,-0.23+sin(b*55.0)*0.019,0.70),0.012,mouth_mat)
+    dizzy_mouth.visible=false
 
 func _heart_eye(x:float)->MeshInstance3D:
     var st=SurfaceTool.new()
@@ -484,6 +532,7 @@ func _process(delta:float):
     t+=minf(delta,0.05)
     _listen_to_python_voice(delta)
     _advance_pet(delta)
+    _advance_shake(delta)
     _update_emotion(delta)
     if hidden:
         # The larger black dots track the pointer on the fluffy cream pom-pom.
@@ -542,6 +591,7 @@ func _advance_soft_body(delta:float):
     var tilt=-0.15 if emotion=="curious" else (0.10 if emotion=="sleepy" else 0.0)
     if emotion=="laugh":tilt=0.045*sin(t*13.0)
     elif emotion=="angry":tilt=0.055*sin(t*7.0)
+    elif emotion=="dizzy":tilt=0.15*sin(t*5.0)
     head.position=Vector3(head_lag.x,0.34-head_lag.y+squish*0.18,0.0)
     head.rotation.z=clampf(-head_lag.x*2.3+tilt,-0.30,0.30)
     # Face, torso and limbs lag differently, then gently wobble back into place.
@@ -563,7 +613,7 @@ func _set_emotion(value:String,duration:float):
     idle_elapsed=0.0
 
 func _show_next_emotion():
-    var choices=["laugh","angry","wink","love","curious","sleepy","happy"]
+    var choices=["laugh","angry","dizzy","wink","love","curious","sleepy","happy"]
     _set_emotion(choices[emotion_cycle%choices.size()],1.8)
     if emotion=="laugh":feedback.play_cue("laugh")
     elif emotion=="angry":feedback.play_cue("grumpy")
@@ -594,9 +644,11 @@ func _update_emotion(delta:float):
         var target_scale=eye_scale
         if emotion=="wink":target_scale=Vector3(1.06,0.13 if i==0 else 1.02,1.0)
         elif emotion=="curious":target_scale=Vector3(1.03,1.10 if i==0 else 0.65,1.0)
-        pupils[i].visible=emotion not in ["love","laugh"]
+        pupils[i].visible=emotion not in ["love","laugh","dizzy"]
         heart_eyes[i].visible=emotion=="love"
         laugh_eyes[i].visible=emotion=="laugh"
+        dizzy_eyes[i].visible=emotion=="dizzy"
+        dizzy_eyes[i].rotation.z=t*7.0*(1.0 if i==0 else -1.0)
         heart_eyes[i].scale=Vector3.ONE*(1.0+0.05*sin(t*5.0))
         pupils[i].scale=pupils[i].scale.lerp(target_scale,minf(1.0,delta*16.0))
         var tilt=0.10 if i==0 else -0.10
@@ -608,6 +660,7 @@ func _update_emotion(delta:float):
     laugh_mouth.visible=emotion=="laugh"
     laugh_mouth.scale.y=1.0+0.10*sin(t*18.0) if emotion=="laugh" else 1.0
     angry_face.visible=emotion=="angry"
+    dizzy_mouth.visible=emotion=="dizzy"
     # The two black eyes on the small cream orb react to touch as well.
     var eye_height=11.0 if dragging else 16.0
     for eye in [orb_left_eye,orb_right_eye]:
@@ -615,6 +668,8 @@ func _update_emotion(delta:float):
 
 func _begin_hold(pointer:Vector2i):
     _reset_pet()
+    _reset_shake()
+    shake_last=pointer
     dragging=true
     orb_moved=false
     hold_elapsed=0.0
@@ -638,7 +693,8 @@ func _move_hold(pointer:Vector2i,relative:Vector2):
         get_window().position=window_from+diff
         drag_v=clampf(relative.x*0.45,-16.0,16.0)
         drag_force=relative.limit_length(70.0)*0.018
-    if relative.length()>14.0 and hold_elapsed>0.15 and not hold_excited:
+        _shake_motion(pointer)
+    if relative.length()>14.0 and hold_elapsed>0.15 and not hold_excited and emotion!="dizzy":
         hold_excited=true
         _set_emotion("excited",0.45)
         feedback.play_cue("excited")
@@ -648,6 +704,9 @@ func _finish_hold(pointer:Vector2i):
     dragging=false
     if hidden and not orb_moved and (pointer-drag_from).length()<7.0:
         _show()
+    elif emotion=="dizzy" and not hidden:
+        _set_emotion("dizzy",2.4)
+        squish_velocity=-1.0
     else:
         var quick_tap=not hidden and not orb_moved and hold_elapsed<0.25
         var now=Time.get_ticks_msec()
@@ -666,11 +725,48 @@ func _finish_hold(pointer:Vector2i):
 
 func _cancel_hold():
     _reset_pet()
+    _reset_shake()
     tap_count=0
     dragging=false
     drag_v=0.0
     drag_force=Vector2.ZERO
     _set_emotion("idle",0.0)
+
+func _reset_shake():
+    shake_axis=Vector2.ZERO
+    shake_distance=0.0
+    shake_stroke=0.0
+    shake_reversals=0
+    shake_elapsed=0.0
+    shake_gap=0.0
+
+func _advance_shake(delta:float):
+    if not dragging:return
+    shake_elapsed+=delta
+    shake_gap+=delta
+    if shake_gap>0.30 or shake_elapsed>1.2:_reset_shake()
+
+func _shake_motion(pointer:Vector2i):
+    # Screen coordinates avoid counting synthetic local motion from window dragging.
+    var movement=Vector2(pointer-shake_last)
+    shake_last=pointer
+    var distance=movement.length()
+    if distance<4.0:return
+    if distance>240.0:
+        _reset_shake()
+        return
+    var direction=movement.normalized()
+    shake_gap=0.0
+    if shake_axis==Vector2.ZERO:shake_axis=direction
+    elif direction.dot(shake_axis)<-0.5:
+        if shake_stroke>=18.0:shake_reversals+=1
+        shake_axis=direction
+        shake_stroke=0.0
+    shake_stroke+=distance
+    shake_distance+=minf(distance,80.0)
+    if shake_reversals>=3 and shake_distance>=160.0:
+        _set_emotion("dizzy",2.4)
+        _reset_shake()
 
 func _input(e:InputEvent):
     # Right click directly on the 3D robot opens the SAME mode switch menu.
