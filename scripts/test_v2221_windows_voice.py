@@ -22,6 +22,52 @@ def wait_for(path,word,process):
     raise AssertionError('Godot did not acknowledge '+word)
 
 
+def check_native_speech(native):
+    # CI has no speaker endpoint. Route the SAME shipped SAPI voice to memory,
+    # then assert it really produced PCM through Speak + bounded WaitUntilDone.
+    import uuid
+    ct=native.ctypes
+    clsid=native.GUID()
+    native._check(native.ole32.CLSIDFromProgID('SAPI.SpMemoryStream',ct.byref(clsid)),'Find memory audio stream')
+    iid=native.GUID.from_buffer_copy(uuid.UUID('00020400-0000-0000-C000-000000000046').bytes_le)
+    stream=ct.c_void_p()
+    native._check(native.ole32.CoCreateInstance(ct.byref(clsid),None,5,ct.byref(iid),ct.byref(stream)),'Create memory stream')
+    vtable=ct.cast(stream,ct.POINTER(ct.POINTER(ct.c_void_p))).contents
+    release=type(native.release_fn)(vtable[2])
+    get_ids=type(native.get_ids)(vtable[5])
+    invoke=type(native.invoke)(vtable[6])
+    try:
+        name=(ct.c_wchar_p*1)('AudioOutputStream')
+        property_id=ct.c_long()
+        native._check(native.get_ids(native.voice,ct.byref(native.iid_null),name,1,0x0409,ct.byref(property_id)),'Find audio stream property')
+        args=(native.VARIANT*1)()
+        args[0].vt=9  # VT_DISPATCH, borrowed; the voice retains its own reference.
+        args[0].value.bstrVal=stream.value
+        named=(ct.c_long*1)(-3)  # DISPID_PROPERTYPUT
+        params=native.DISPPARAMS(args,named,1,1)
+        native._check(native.invoke(native.voice,property_id.value,ct.byref(native.iid_null),0x0409,8,
+            ct.byref(params),None,None,None),'Route test speech to memory')
+        native.speak('Hello, Muhammad! Let us code together!')
+        name=(ct.c_wchar_p*1)('GetData')
+        method=ct.c_long()
+        native._check(get_ids(stream,ct.byref(native.iid_null),name,1,0x0409,ct.byref(method)),'Find audio data')
+        result=native.VARIANT()
+        empty=native.DISPPARAMS(None,None,0,0)
+        native._check(invoke(stream,method.value,ct.byref(native.iid_null),0x0409,1,ct.byref(empty),
+            ct.byref(result),None,None),'Read spoken PCM')
+        try:
+            assert result.vt==0x2011, result.vt  # VT_ARRAY | VT_UI1
+            lower,upper=ct.c_long(),ct.c_long()
+            for name,bound in [('SafeArrayGetLBound',lower),('SafeArrayGetUBound',upper)]:
+                method=getattr(native.oleaut,name)
+                method.argtypes=[ct.c_void_p,ct.c_uint,ct.POINTER(ct.c_long)]
+                method.restype=ct.c_long
+                native._check(method(result.value.bstrVal,1,ct.byref(bound)),'Read PCM size')
+            assert upper.value-lower.value+1>1000, 'Native greeting produced no audio'
+        finally:native.oleaut.VariantClear(ct.byref(result))
+    finally:release(stream)
+
+
 def main(archive, fixtures):
     archive,fixtures=Path(archive).resolve(),Path(fixtures).resolve()
     commands=load_commands(archive)
@@ -45,7 +91,7 @@ def main(archive, fixtures):
         scope={}
         exec(compile(native_source,'windows_speech.py','exec'),scope)
         native=scope['NativeWindowsSpeech']()
-        try:native.speak('')
+        try:check_native_speech(native)
         finally:native.close()
         host=make_host(source,folder)
         host._enable_existing_mic()
