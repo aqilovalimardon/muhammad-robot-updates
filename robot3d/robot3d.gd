@@ -1,6 +1,6 @@
 extends Node3D
 # Muhammad Robot: actual Godot 3D meshes, light, fur, 3D eye & antenna movement.
-# v2.2.21: recovered voice bridge and dizzy spiral eyes after deliberate shaking.
+# v2.2.22: non-blocking shared menu and reliable voice commands while it is open.
 const Feedback = preload("res://robot_feedback.gd")
 const PlushOrb = preload("res://plush_orb.gd")
 const AntennaGlow = preload("res://antenna_glow.gd")
@@ -101,7 +101,7 @@ func _ready():
     feedback=Feedback.new()
     add_child(feedback)
     _controls()
-    w.focus_exited.connect(_cancel_hold)
+    w.focus_exited.connect(_on_focus_exited)
     if "--render-test" in OS.get_cmdline_user_args():
         get_tree().create_timer(2.0).timeout.connect(_save_and_quit)
     if "--interaction-test" in cmd:
@@ -732,6 +732,10 @@ func _cancel_hold():
     drag_force=Vector2.ZERO
     _set_emotion("idle",0.0)
 
+func _on_focus_exited():
+    menu.visible=false
+    _cancel_hold()
+
 func _reset_shake():
     shake_axis=Vector2.ZERO
     shake_distance=0.0
@@ -769,8 +773,12 @@ func _shake_motion(pointer:Vector2i):
         _reset_shake()
 
 func _input(e:InputEvent):
-    # Right click directly on the 3D robot opens the SAME mode switch menu.
-    if e is InputEventMouseButton and e.button_index==MOUSE_BUTTON_RIGHT and e.pressed:
+    if menu.visible and e is InputEventMouseButton and e.pressed and not menu.get_global_rect().has_point(e.position):
+        menu.visible=false
+        get_viewport().set_input_as_handled()
+        return
+    # Right/middle click and the belly button use the same non-modal host menu.
+    if e is InputEventMouseButton and e.button_index in [MOUSE_BUTTON_RIGHT,MOUSE_BUTTON_MIDDLE] and e.pressed:
         _toggle_menu()
         get_viewport().set_input_as_handled()
         return

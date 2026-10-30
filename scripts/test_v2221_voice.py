@@ -27,6 +27,7 @@ def make_host(source, folder, listener_type=None):
     methods={'_enable_existing_mic','toggle_microphone','restart_microphone',
         '_restart_mic_when_released','start_microphone','_mic_failed','_maybe_retry_microphone',
         '_poll_mic_events','_signal_real3d','minimize','restore','say'}
+    if 'def _dismiss_shared_menu(' in source:methods.add('_dismiss_shared_menu')
     if listener_type is None:
         class Listener:
             def __init__(self,root,events,speaking):

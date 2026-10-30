@@ -1,6 +1,13 @@
 # muhammad-robot-updates
 Automatic updates for Muhammad's desktop robot
 
+## v2.2.22 — responsive menu and voice commands
+
+- Replaces the modal Windows popup that could suspend the Tk timer responsible for dispatching **Close robot** and **Open robot** while the menu was open.
+- The belly button, right-click and middle-click share a non-modal menu. Click outside, switch windows or press Escape to dismiss it; selecting an action or giving Open/Close also closes it.
+- All existing commands remain available in both 3D and Classic. The menu shows the current voice status and keeps the Classic avatar hidden when 3D is active.
+- Regression checks reproduce the old Windows timer blockage, exercise actual outside clicks, and recognize real speech samples through the shipped host and 3D EXE with the menu open. Physical microphone permissions and device selection still depend on the user's computer.
+
 ## v2.2.21 — voice recovery and dizzy eyes
 
 - Repairs **Hello robot**, **Close robot** and **Open robot**. Already-installed voice support disabled by an old input error is restored once; explicit microphone Off is recorded separately.
@@ -17,4 +24,4 @@ Automatic updates for Muhammad's desktop robot
 - Quiet offline giggles respect **3D effect sounds: On / Off**. Open/Close cues take priority, and continued rubbing cannot flood the audio.
 - 3D stays primary; the shared menu, code editor, voice commands and draggable cream orb retain their existing behavior.
 
-The release workflow tests the actual Godot scene, exported Windows EXE, native Windows/Tk popup and installed updater before publishing. `--capture-review` exports real expression frames and WAV cues for review.
+The release workflow tests the actual Godot scene, exported Windows EXE, Windows/Tk popup and its event timers and installed updater before publishing. `--capture-review` exports real expression frames and WAV cues for review.

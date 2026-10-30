@@ -116,10 +116,26 @@ func run(r):
     check(FileAccess.get_file_as_string(r.bridge_file)=="menu","orb right-click uses shared menu")
     check(r.hidden,"opening orb context menu does not expand the avatar")
     DirAccess.remove_absolute(r.bridge_file)
+    var middle_click=InputEventMouseButton.new()
+    middle_click.button_index=MOUSE_BUTTON_MIDDLE
+    middle_click.pressed=true
+    r._input(middle_click)
+    check(FileAccess.get_file_as_string(r.bridge_file)=="menu","middle-click uses the same host menu")
+    DirAccess.remove_absolute(r.bridge_file)
     r.bridge_file=""
     check(r.small_eye.size==Vector2(64,64),"fluffy orb has room for its fur")
     check(r.orb_left_eye.size.x==14.0 and r.orb_right_eye.size.x==14.0,"both black eyes are larger")
     r._show()
+    r.menu.visible=true
+    r._on_focus_exited()
+    check(not r.menu.visible,"standalone menu dismisses on focus loss")
+    r.menu.visible=true
+    var outside_click=InputEventMouseButton.new()
+    outside_click.button_index=MOUSE_BUTTON_LEFT
+    outside_click.pressed=true
+    outside_click.position=Vector2(-10,-10)
+    r._input(outside_click)
+    check(not r.menu.visible and not r.dragging,"standalone outside click closes without dragging")
 
     r._begin_hold(Vector2i(100,100))
     r._update_emotion(1.3)

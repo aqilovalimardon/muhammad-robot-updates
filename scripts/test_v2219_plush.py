@@ -64,6 +64,7 @@ def main(baseline, output, expected_version='2.2.19', expected_changed=None):
     scope = {'tk': SimpleNamespace(TclError=Exception), 'Editor': Editor}
     methods = {'_signal_real3d', '_start_default_3d', 'open_editor', 'minimize',
                'restore', '_poll_real3d_mode', '_stop_real3d', 'switch_to_classic', '_build_menu', '_show_shared_menu', 'popup', '_toggle_3d_effects', '_cycle_3d_emotion', 'exit'}
+    if 'def _dismiss_shared_menu(' in app:methods.add('_dismiss_shared_menu')
     Robot = selected_class(app, 'RobotApp', methods, scope)
     with tempfile.TemporaryDirectory() as temporary:
         host = Robot()

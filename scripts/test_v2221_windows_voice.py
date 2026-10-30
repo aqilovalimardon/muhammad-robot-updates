@@ -13,9 +13,10 @@ import zipfile
 from test_v2221_voice import load_commands, make_host
 
 
-def wait_for(path,word,process):
+def wait_for(path,word,process,pump=None):
     deadline=time.monotonic()+12
     while time.monotonic()<deadline:
+        if pump:pump()
         if path.is_file() and word in path.read_text().splitlines():return
         if process.poll() is not None:break
         time.sleep(0.04)
@@ -68,7 +69,7 @@ def check_native_speech(native):
     finally:release(stream)
 
 
-def main(archive, fixtures):
+def main(archive, fixtures, with_menu=False):
     archive,fixtures=Path(archive).resolve(),Path(fixtures).resolve()
     commands=load_commands(archive)
     import vosk
@@ -95,6 +96,10 @@ def main(archive, fixtures):
         finally:native.close()
         host=make_host(source,folder)
         host._enable_existing_mic()
+        if with_menu:
+            from test_v2222_popup import attach_popup
+            attach_popup(host,source)
+            host._poll_mic_events()
         spoken=[]
         host.voice.speak=spoken.append
         ack=folder/'ack.txt'
@@ -106,6 +111,10 @@ def main(archive, fixtures):
             try:
                 wait_for(ack,'ready',process)
                 for command in ('hello','close','open'):
+                    if with_menu:
+                        host._show_shared_menu()
+                        host.root.update()
+                        assert host._shared_popup is not None
                     with wave.open(str(fixtures/(command+'.wav')),'rb') as sound:
                         assert sound.getsampwidth()==2 and sound.getnchannels()==1
                         rate=sound.getframerate()
@@ -115,22 +124,31 @@ def main(archive, fixtures):
                     gate=commands.CommandGate()
                     for offset in range(0,len(pcm),4000):
                         commands.recognize_audio(rec,gate,pcm[offset:offset+4000],host.listener.events,offset/32000.0)
-                        host._poll_mic_events()
+                        if with_menu:host.root.update()
+                        else:host._poll_mic_events()
                     final=json.loads(rec.FinalResult()).get('text','')
                     pending=gate.accept(final,True,len(pcm)/32000.0)
                     if pending:host.listener.events.put(('command',pending))
-                    host._poll_mic_events()
+                    if not with_menu:host._poll_mic_events()
+                    wait_for(ack,command,process,host.root.update if with_menu else None)
                     assert host.mic_last_command==command,(command,host.mic_last_heard)
-                    wait_for(ack,command,process)
+                    if with_menu:
+                        if command in ('open','close'):assert host._shared_popup is None
+                        host._dismiss_shared_menu()
                 assert process.wait(timeout=10)==0
                 assert spoken==['Hello, Muhammad! Let us code together!']
             finally:
+                if with_menu:
+                    errors=host.ui_errors[:]
+                    host.root.destroy()
+                    assert not errors,errors
                 if process.poll() is None:
                     process.terminate()
                     process.wait(timeout=5)
         print(log.read_text(encoding='utf-8'))
         assert 'PASS: recorded Hello/Close/Open' in log.read_text(encoding='utf-8')
     print('PASS: real Windows SAPI + Vosk audio recognition + host event dispatch + exported 3D Hello/Close/Open')
+    if with_menu:print('PASS: real recognized audio drives 3D Close/Open while the shared popup is open and Tk timers run')
 
 
 if __name__=='__main__':main(*sys.argv[1:])
