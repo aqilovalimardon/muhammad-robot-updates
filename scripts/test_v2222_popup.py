@@ -119,6 +119,10 @@ def popup_checks(baseline,output):
             peer=tk.Toplevel(h.root)
             peer.geometry('170x100+500+50')
             peer.title('Outside click test')
+            # CI's runner terminal may cover a normal Toplevel. Make the click
+            # target visible before opening the menu, without taking menu focus.
+            peer.attributes('-topmost',True)
+            peer.lift()
             clicks=[]
             peer.bind('<Button-1>',lambda e:clicks.append(True))
             peer.update()
@@ -129,8 +133,16 @@ def popup_checks(baseline,output):
                 from ctypes import wintypes
                 api=ctypes.WinDLL('user32',use_last_error=True)
                 api.SetCursorPos.argtypes=[ctypes.c_int,ctypes.c_int]
+                api.SetCursorPos.restype=wintypes.BOOL
+                api.WindowFromPoint.argtypes=[wintypes.POINT]
+                api.WindowFromPoint.restype=wintypes.HWND
+                api.GetAncestor.argtypes=[wintypes.HWND,wintypes.UINT]
+                api.GetAncestor.restype=wintypes.HWND
                 api.mouse_event.argtypes=[wintypes.DWORD,wintypes.DWORD,wintypes.DWORD,wintypes.DWORD,ctypes.c_size_t]
-                api.SetCursorPos(peer.winfo_rootx()+40,peer.winfo_rooty()+40)
+                point=wintypes.POINT(peer.winfo_rootx()+40,peer.winfo_rooty()+40)
+                target=api.WindowFromPoint(point)
+                assert api.GetAncestor(target,2)==api.GetAncestor(peer.winfo_id(),2), 'Outside test target is covered'
+                assert api.SetCursorPos(point.x,point.y), 'Could not move the test pointer'
                 api.mouse_event(2,0,0,0,0)
                 try:
                     pump(h.root,lambda:h._shared_popup is None)
