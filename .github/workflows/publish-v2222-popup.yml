@@ -123,9 +123,11 @@ jobs:
           python scripts/test_v2222_popup.py baseline/MuhammadRobot-2.2.21.zip package/MuhammadRobot-2.2.22.zip --ui
           if ($LASTEXITCODE -ne 0) { throw 'Native context menu check failed' }
       - name: Generate actual offline Windows voice samples
+        if: ${{ !cancelled() }}
         shell: powershell
         run: ./scripts/make_voice_fixtures.ps1
       - name: Recognize real audio and drive the shipped 3D robot
+        if: ${{ !cancelled() }}
         timeout-minutes: 4
         shell: pwsh
         run: |
@@ -143,6 +145,7 @@ jobs:
             windows-voice-integration.log
             voice-fixtures/
             popup-review.png
+            outside-click-review.png
 
   publish:
     if: github.ref == 'refs/heads/main'

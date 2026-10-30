@@ -132,7 +132,21 @@ def popup_checks(baseline,output):
                 api.mouse_event.argtypes=[wintypes.DWORD,wintypes.DWORD,wintypes.DWORD,wintypes.DWORD,ctypes.c_size_t]
                 api.SetCursorPos(peer.winfo_rootx()+40,peer.winfo_rooty()+40)
                 api.mouse_event(2,0,0,0,0)
-                try:pump(h.root,lambda:h._shared_popup is None and bool(clicks))
+                try:
+                    pump(h.root,lambda:h._shared_popup is None)
+                    print('PASS: physical outside press dismissed the menu; peer clicks:',len(clicks))
+                    pump(h.root,lambda:bool(clicks))
+                except AssertionError:
+                    print('Outside click diagnostics:',
+                        'popup_open=',h._shared_popup is not None,
+                        'pointer=',h._popup_pointer(),
+                        'peer=',peer.winfo_geometry(),
+                        'viewable=',peer.winfo_viewable(),
+                        'focus=',h.root.focus_get(),
+                        'clicks=',len(clicks),'errors=',h.ui_errors)
+                    from PIL import ImageGrab
+                    ImageGrab.grab().save('outside-click-review.png')
+                    raise
                 finally:api.mouse_event(4,0,0,0,0)
             else:
                 peer.focus_force()
