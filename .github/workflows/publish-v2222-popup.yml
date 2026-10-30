@@ -108,7 +108,7 @@ jobs:
           $text=Get-Content -Raw $log
           Write-Output $text
           if ($text -notmatch 'PASS: real scene emotions' -or $text -match 'SCRIPT ERROR|Parse Error|ERROR:') { throw 'Windows interaction assertions did not pass' }
-      - name: Reproduce old blocking menu and verify outside clicks plus live voice on Windows
+      - name: Verify outside clicks and live voice with the real Windows host settings
         timeout-minutes: 2
         env:
           GH_TOKEN: ${{ github.token }}
@@ -166,4 +166,4 @@ jobs:
           gh release create v2.2.22 package/MuhammadRobot-2.2.22.zip package/manifest.json \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest \
             --title 'Muhammad Robot v2.2.22 - Responsive menu and Open Close commands' \
-            --notes 'Fixes the Windows popup that could suspend voice command dispatch while open. The shared belly, right-click and middle-click menu now keeps the microphone and 3D bridge timers running, closes on an outside click, focus loss or Escape, and closes before Open/Close or an action executes. Existing menu actions remain available in both 3D and Classic, with live voice status visible. Validated by reproducing the old Windows menu timer blockage, clicking outside the new menu, and recognizing real Windows speech samples through Vosk to the shipped 3D EXE while the menu is open. Voice preferences, user data, primary 3D and all existing emotions are preserved.'
+            --notes 'Replaces the modal popup with a dismissible shared menu for the belly button, right-click and middle-click. The menu keeps microphone and 3D bridge timers running, closes on an outside click, focus loss or Escape, and closes before Open/Close or an action executes. Existing menu actions remain available in both 3D and Classic, with live voice status visible. Validated with actual outside clicks and real Windows speech samples through Vosk to the shipped 3D EXE while the menu is open. Voice preferences, user data, primary 3D and all existing emotions are preserved. Physical microphone permissions and device selection still depend on the user computer.'

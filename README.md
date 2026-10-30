@@ -3,10 +3,10 @@ Automatic updates for Muhammad's desktop robot
 
 ## v2.2.22 — responsive menu and voice commands
 
-- Replaces the modal Windows popup that could suspend the Tk timer responsible for dispatching **Close robot** and **Open robot** while the menu was open.
+- Replaces the modal Windows popup with a regular dismissible window. **Close robot** and **Open robot** keep running while it is open and dismiss the menu before changing the avatar.
 - The belly button, right-click and middle-click share a non-modal menu. Click outside, switch windows or press Escape to dismiss it; selecting an action or giving Open/Close also closes it.
 - All existing commands remain available in both 3D and Classic. The menu shows the current voice status and keeps the Classic avatar hidden when 3D is active.
-- Regression checks reproduce the old Windows timer blockage, exercise actual outside clicks, and recognize real speech samples through the shipped host and 3D EXE with the menu open. Physical microphone permissions and device selection still depend on the user's computer.
+- Regression checks exercise actual outside clicks, ongoing Tk timers, and real speech samples through the shipped host and 3D EXE with the menu open. The old native menu services timers on some Windows/Tk builds, so validation does not assume that it always blocks recognition. Physical microphone permissions and device selection still depend on the user's computer.
 
 ## v2.2.21 — voice recovery and dizzy eyes
 
