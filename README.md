@@ -1,6 +1,12 @@
 # muhammad-robot-updates
 Automatic updates for Muhammad's desktop robot
 
+## v2.2.23 — soft fur and whole-body expressions
+
+- Hold a tuft at the edge of the head or body and pull outward. The tuft stretches under the pointer as the robot lowers its head, tucks its arms and gives a quiet sigh. The fur springs back when released.
+- Stroke the head or body back and forth with the mouse button released. The robot giggles, smiles and bounces. To move the window, drag the middle of its face.
+- The 3D robot is now the only avatar in the current version. The shared menu keeps Python Studio, voice commands and the existing 3D effect sounds toggle. The updater preserves microphone and sound preferences, saved scripts, Drive settings and the previous release for rollback.
+
 ## v2.2.22 — responsive menu and voice commands
 
 - Replaces the modal Windows popup with a regular dismissible window. **Close robot** and **Open robot** keep running while it is open and dismiss the menu before changing the avatar.

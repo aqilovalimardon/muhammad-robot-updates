@@ -13,9 +13,9 @@ func run(r):
     r.feedback.enabled=true
     var heard_callback=func(cue):played.append(cue)
     r.feedback.cue_played.connect(heard_callback)
-    for cue in ["grab","excited","release","close","open","grumpy","laugh"]:
+    for cue in ["grab","excited","release","close","open","grumpy","laugh","sad"]:
         var sound:AudioStreamWAV=r.feedback.sounds[cue]
-        check(sound.get_length()>0.05 and sound.get_length()<(0.5 if cue=="laugh" else 0.25),cue+" must be short")
+        check(sound.get_length()>0.05 and sound.get_length()<(0.5 if cue in ["laugh","sad"] else 0.25),cue+" must be short")
         var pcm=sound.data
         var peak=0
         for i in range(0,pcm.size(),2):peak=maxi(peak,absi(pcm.decode_s16(i)))
@@ -285,7 +285,87 @@ func run(r):
     r._hide()
     r._show()
     check(played.size()==count and not r.hidden,"mute keeps open/close working")
+    await _coat_checks(r)
     r.feedback.cue_played.disconnect(heard_callback)
     r.feedback.player.stop()
     await r.get_tree().create_timer(0.35).timeout
     print("PASS: real scene emotions, deliberate shake and rotating dizzy eyes, hover rubbing and giggle debounce, playful anger, antenna glow, sound PCM, shared menu, softer spring stability, fluffy orb, voice bridge and mute" if not failed else "FAIL: interaction regressions")
+
+func _coat_checks(r):
+    r._cancel_hold()
+    r.feedback.enabled=true
+    r.feedback.command_until_ms=0
+    r.feedback.next_touch_ms=0
+    r.feedback.next_sad_ms=0
+    for i in 60:r._process(1.0/30.0)
+    var camera=r.get_viewport().get_camera_3d()
+    var cheek=camera.unproject_position(r.head.to_global(Vector3(-0.65,0.12,0.06)))
+    var face=camera.unproject_position(r.head.to_global(Vector3(0.0,0.0,0.64)))
+    var clothes=r.fur_pull
+    for point in [face,Vector2(1.0,1.0)]:
+        clothes.arm(camera,point,point)
+        check(not clothes.armed,"visor and transparent corners cannot grab the fur")
+    var belly_edge=camera.unproject_position(r.robot.to_global(Vector3(0.49,-0.59,0.17)))
+    clothes.arm(camera,belly_edge,belly_edge)
+    check(clothes.armed and clothes.selected.skin.name=="RoundedBody","torso has a pickable coat")
+    clothes.reset()
+    # Start through the viewport's actual press handler; do not hardcode a tuft.
+    var press=InputEventMouseButton.new()
+    press.button_index=MOUSE_BUTTON_LEFT
+    press.pressed=true
+    press.position=cheek
+    r.get_viewport().push_input(press,true)
+    await r.get_tree().process_frame
+    var start=r.drag_from
+    var window=r.get_window().position
+    check(clothes.armed and not clothes.pulling,"a real press on the head catches a visible tuft")
+    r._move_hold(start+Vector2i(-3,0),Vector2(-3,0))
+    check(not clothes.pulling and r.emotion!="sad","tiny motion does not upset the robot")
+    var sad_count=played.count("sad")
+    r._move_hold(start+Vector2i(-31,2),Vector2(-28,2))
+    for i in 18:r._process(1.0/30.0)
+    check(clothes.pulling and r.emotion=="sad" and r.sad_face.visible,"outward tug shows a sad face")
+    check(r.get_window().position==window and r.sad_weight>0.85 and r.left_hand.position.x>-0.54,
+        "the window stays in place while the head and limbs fold in")
+    check(played.count("sad")==sad_count+1,"a single quiet sigh per pull")
+    if clothes.selected!=null:
+        var selected=clothes.selected
+        var extension:Vector3=selected.fur_mat.get_shader_parameter("extension")
+        check(extension.x < -0.25 and extension.length()<=clothes.MAX_EXTENSION+0.001,
+            "the actual coat material follows the pointer by a bounded amount")
+        check(extension==selected.skin_mat.get_shader_parameter("extension"),"skin and fur roots remain attached")
+        for patch in clothes.patches:
+            if patch!=selected:
+                var other=patch.fur_mat.get_shader_parameter("extension")
+                check(other==null or other==Vector3.ZERO,"the other coat patch stays at rest")
+    for i in 35:r._move_hold(start+Vector2i(-70-i,2),Vector2(-1,0))
+    check(played.count("sad")==sad_count+1,"continuing a tug does not repeat the sigh")
+    r._finish_hold(start+Vector2i(-100,2))
+    check(not r.dragging and r.emotion=="sad","releasing a tuft does not switch to a happy chirp")
+    for i in 120:r._process(1.0/30.0)
+    check(clothes.selected==null and clothes.displacement==Vector3.ZERO and r.emotion=="idle",
+        "coat and mood settle after release")
+    r._begin_hold(start,face)
+    r._move_hold(start+Vector2i(28,0),Vector2(28,0))
+    check(r.orb_moved and not clothes.pulling and r.emotion!="sad","center drag still moves the robot")
+    r._cancel_hold()
+    r.feedback.enabled=false
+    sad_count=played.count("sad")
+    cheek=camera.unproject_position(r.head.to_global(Vector3(-0.65,0.12,0.06)))
+    r._begin_hold(start,cheek)
+    r._move_hold(start+Vector2i(-28,0),Vector2(-28,0))
+    check(clothes.pulling and r.emotion=="sad" and played.count("sad")==sad_count,"muted tugs remain expressive")
+    r._hide()
+    check(not clothes.armed and clothes.selected==null and r.hidden,"close during a pull releases it")
+    r._show()
+    r._set_emotion("laugh",1.4)
+    var low=INF
+    var high=-INF
+    for i in 30:
+        r._process(1.0/30.0)
+        low=minf(low,r.robot.position.y)
+        high=maxf(high,r.robot.position.y)
+    check(r.laugh_weight>0.95 and high-low>0.09 and r.left_hand.position.y>-0.23,
+        "laughter bounces the body and lifts the arms")
+    check(r.feedback.sounds["sad"].data!=r.feedback.sounds["laugh"].data,"sigh and giggle have distinct audio")
+    if not failed:print("PASS: local fur stretch, 3D-only gestures, quiet sad/laugh poses, mute and recovery")

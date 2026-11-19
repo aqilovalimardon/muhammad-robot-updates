@@ -11,7 +11,7 @@ import zipfile
 from test_v2219_plush import selected_class,main as package_checks
 from test_v2221_voice import make_host,load_commands,test_recovery,test_speech,test_audio_stream,test_recognition_tools
 
-POPUP_METHODS={'_build_menu','popup','toggle_aqua_menu','_show_aqua_menu','_show_shared_menu',
+POPUP_METHODS={'_build_menu','popup','_show_shared_menu',
     '_popup_voice_status','_popup_pointer','_popup_check_focus','_poll_shared_popup',
     '_dismiss_shared_menu','_invoke_shared_action'}
 CALLBACKS=('open_editor','quick_run','learn','say','restore','minimize','_cycle_3d_emotion',
@@ -48,13 +48,13 @@ def pump(root,condition,timeout=2):
     raise AssertionError('Tk event deadline exceeded')
 
 
-def popup_checks(baseline,output):
+def popup_checks(baseline,output,only_3d=False):
     with zipfile.ZipFile(baseline) as old,zipfile.ZipFile(output) as new:
         before=old.read('app/robot_app.py').decode('utf-8')
         source=new.read('app/robot_app.py').decode('utf-8')
     with tempfile.TemporaryDirectory() as tmp:
         folder=Path(tmp)
-        if sys.platform=='win32':
+        if sys.platform=='win32' and not only_3d:
             from test_v2219_native_menu import windows_popup
             legacy=attach_popup(make_host(before,folder),before,legacy=True)
             tick=[]
@@ -73,7 +73,11 @@ def popup_checks(baseline,output):
         h._poll_mic_events()
         try:
             labels=[h.menu.entrycget(i,'label') for i in range(h.menu.index('end')+1) if h.menu.type(i)!='separator']
-            for active in (True,False):
+            if only_3d:
+                assert not any('Classic' in label or 'appearance' in label.lower() for label in labels)
+                assert {'Edit Python code','Run Python code','Show next 3D emotion','3D effect sounds: On / Off',
+                        'Voice status / restart microphone','Check GitHub updates','Drive folder settings'} <= set(labels)
+            for active in ((True,) if only_3d else (True,False)):
                 h._three_d_active=active
                 h.popup(SimpleNamespace(x_root=100,y_root=80))
                 win=h._shared_popup
@@ -83,7 +87,8 @@ def popup_checks(baseline,output):
                 assert h._shared_popup is win and win.winfo_viewable()
                 assert h.root.state()=='withdrawn' and h.root.grab_current() is None
                 assert list(h._shared_popup_buttons)==labels
-                assert h._shared_popup_buttons['Switch to Classic (backup)'].cget('state')==('normal' if active else 'disabled')
+                if not only_3d:
+                    assert h._shared_popup_buttons['Switch to Classic (backup)'].cget('state')==('normal' if active else 'disabled')
                 if active and sys.platform=='win32':
                     from PIL import ImageGrab
                     x,y=win.winfo_rootx(),win.winfo_rooty()
@@ -165,7 +170,11 @@ def popup_checks(baseline,output):
                 pump(h.root,lambda:h._shared_popup is None)
             peer.destroy()
             assert not h.ui_errors,h.ui_errors
-        finally:h.root.destroy()
+        finally:
+            # Subsequent tests may create another Tk interpreter in this process.
+            for job in h.root.tk.call('after','info'):
+                h.root.after_cancel(job)
+            h.root.destroy()
     print('PASS: non-modal shared menu, actual outside click/focus dismissal, unchanged callbacks, live voice Close/Open while menu is open')
 
 

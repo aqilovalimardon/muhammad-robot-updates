@@ -1,9 +1,9 @@
 extends Node3D
 # Muhammad Robot: actual Godot 3D meshes, light, fur, 3D eye & antenna movement.
-# v2.2.22: non-blocking shared menu and reliable voice commands while it is open.
 const Feedback = preload("res://robot_feedback.gd")
 const PlushOrb = preload("res://plush_orb.gd")
 const AntennaGlow = preload("res://antenna_glow.gd")
+const PlushPull = preload("res://plush_pull.gd")
 const DESK_SIZE=Vector2i(176,200)
 const ORB_SIZE=Vector2i(64,64)
 const CREAM=Color(0.89,0.78,0.64)
@@ -57,6 +57,11 @@ var pet_surfaces:Array[MeshInstance3D]=[]
 var laugh_eyes:Array[Node3D]=[]
 var laugh_mouth:Node3D
 var angry_face:Node3D
+var sad_face:Node3D
+var fur_pull = PlushPull.new()
+var sad_weight := 0.0
+var laugh_weight := 0.0
+var laugh_time := 0.0
 var antenna_glow
 var pet_distance=0.0
 var pet_reversals=0
@@ -191,7 +196,10 @@ func _world():
     rim.rotation_degrees=Vector3(15,140,0)
     add_child(rim)
 
-func _fur(parent:Node3D,origin:Vector3,axes:Vector3,amount:int,head_fur:bool,cream:Material):
+func _fur(skin:MeshInstance3D,amount:int,head_fur:bool):
+    var origin := skin.position
+    var axes := skin.scale
+    var roots := PackedVector3Array()
     var rng=RandomNumberGenerator.new()
     rng.seed=12051+amount
     var st=SurfaceTool.new()
@@ -207,19 +215,23 @@ func _fur(parent:Node3D,origin:Vector3,axes:Vector3,amount:int,head_fur:bool,cre
         var across=outward.cross(Vector3.UP)
         if across.length_squared()<0.05:across=outward.cross(Vector3.RIGHT)
         across=across.normalized()
-        var w=rng.randf_range(0.006,0.013)
+        var w=rng.randf_range(0.007,0.015)
         var length=rng.randf_range(0.060,0.125)
+        if outward.z >= -0.015:
+            roots.append(origin_point + outward * length * 0.40)
+        st.set_uv(Vector2.ZERO)
         st.set_normal(outward)
         st.add_vertex(origin_point-across*w)
         st.set_normal(outward)
         st.add_vertex(origin_point+across*w)
+        st.set_uv(Vector2.RIGHT)
         st.set_normal(outward)
         st.add_vertex(origin_point+outward*length+across*rng.randf_range(-0.02,0.02))
     var mesh=MeshInstance3D.new()
     mesh.name="Micro3DFur"
     mesh.mesh=st.commit()
-    mesh.material_override=cream
-    parent.add_child(mesh)
+    skin.get_parent().add_child(mesh)
+    fur_pull.add_patch(skin,mesh,roots,CREAM,Color(0.94,0.86,0.75))
 
 func _character():
     var cream=_mat(CREAM,0.94)
@@ -228,12 +240,11 @@ func _character():
     var blue=_mat(Color(0.29,0.61,1.0),0.22,1.8)
     var white=_mat(Color(0.94,0.98,1.0),0.24,0.6)
     var dark=_mat(Color(0.012,0.046,0.22),0.13)
-    var fur_mat=_mat(Color(0.94,0.86,0.75),0.99)
-    fur_mat.cull_mode=BaseMaterial3D.CULL_DISABLED
     robot=Node3D.new()
     robot.name="MuhammadReal3D"
     add_child(robot)
-    pet_surfaces.append(_sphere(robot,"RoundedBody",Vector3(0,-0.32,0.02),Vector3(0.59,0.61,0.45),cream))
+    var torso = _sphere(robot,"RoundedBody",Vector3(0,-0.32,0.02),Vector3(0.59,0.61,0.45),cream)
+    pet_surfaces.append(torso)
     left_hand=_sphere(robot,"LeftHand",Vector3(-0.63,-0.24,0),Vector3(0.21,0.32,0.22),soft)
     left_hand.rotation_degrees.z=-15
     right_hand=_sphere(robot,"RightHand",Vector3(0.63,-0.24,0),Vector3(0.21,0.32,0.22),soft)
@@ -246,8 +257,10 @@ func _character():
     head.name="Head"
     head.position=Vector3(0,0.34,0)
     robot.add_child(head)
-    pet_surfaces.append(_sphere(head,"SoftFurryHead",Vector3.ZERO,Vector3(0.67,0.67,0.52),cream))
-    _sphere(head,"Black3DVisor",Vector3(0,-0.045,0.50),Vector3(0.49,0.32,0.145),black)
+    var hood = _sphere(head,"SoftFurryHead",Vector3.ZERO,Vector3(0.67,0.67,0.52),cream)
+    pet_surfaces.append(hood)
+    var visor = _sphere(head,"Black3DVisor",Vector3(0,-0.045,0.50),Vector3(0.49,0.32,0.145),black)
+    fur_pull.occluders.append_array([visor, left_hand, right_hand, left_foot, right_foot])
     for x in [-0.22,0.22]:
         var eye=Node3D.new()
         eye.name="LeftEye" if x<0.0 else "RightEye"
@@ -278,9 +291,8 @@ func _character():
     _expressive_face(mouth_mat)
     _sphere(robot,"ChestRing",Vector3(0,-0.37,0.51),Vector3(0.169,0.169,0.064),white)
     _sphere(robot,"ChestButton",Vector3(0,-0.37,0.568),Vector3(0.113,0.113,0.022),blue)
-    # 2,500 tiny 3D fibers are generated once, with no runtime hair physics.
-    _fur(robot,Vector3(0,-0.32,0.02),Vector3(0.59,0.61,0.45),1050,false,fur_mat)
-    _fur(head,Vector3.ZERO,Vector3(0.67,0.67,0.52),1450,true,fur_mat)
+    _fur(torso,1050,false)
+    _fur(hood,1450,true)
     antenna=Node3D.new()
     antenna.name="Antenna"
     antenna.position=Vector3(0.04,0.99,0)
@@ -323,6 +335,18 @@ func _expressive_face(mouth_mat:Material):
         _rod(angry_face,"Frown"+str(i),Vector3(a,-0.20-3.0*a*a,0.68),
             Vector3(b,-0.20-3.0*b*b,0.68),0.014,warm)
     angry_face.visible=false
+    sad_face=Node3D.new()
+    head.add_child(sad_face)
+    for side in [-1.0,1.0]:
+        _rod(sad_face,"RaisedInnerBrow",Vector3(side*0.10,0.17,0.73),
+            Vector3(side*0.33,0.09,0.73),0.019,mouth_mat)
+    for i in range(12):
+        var x1=-0.12+i*0.02
+        var x2=x1+0.02
+        _rod(sad_face,"DownturnedMouth",Vector3(x1,-0.183-4.0*x1*x1,0.70),
+            Vector3(x2,-0.183-4.0*x2*x2,0.70),0.017,mouth_mat)
+    _sphere(sad_face,"Tear",Vector3(0.28,-0.13,0.72),Vector3(0.023,0.038,0.014),mouth_mat)
+    sad_face.visible=false
     for x in [-0.22,0.22]:
         var eye=Node3D.new()
         eye.position=Vector3(x,-0.01,0.73)
@@ -402,7 +426,10 @@ func _controls():
     menu.add_theme_stylebox_override("panel",style)
     var column=VBoxContainer.new()
     menu.add_child(column)
-    for action in [["▶ Run Python","run"],["✎ Python Studio","editor"],["↩ Switch to Classic","classic"],["♪ Sounds: On","sound"],["− Hide","hide"],["× Exit 3D","exit"]]:
+    var actions = [["♪ Sounds: On","sound"],["− Hide","hide"],["× Exit Robot","exit"]]
+    if not bridge_file.is_empty():
+        actions = [["▶ Run Python","run"],["✎ Python Studio","editor"]] + actions
+    for action in actions:
         var b=Button.new()
         b.text=action[0]
         b.custom_minimum_size=Vector2(170,28)
@@ -447,7 +474,7 @@ func _bridge(command:String):
     if bridge_file.is_empty():
         print("Standalone 3D preview: no Python robot bridge for ",command)
         return
-    if command not in ["classic","editor","run","menu"]:
+    if command not in ["exit","editor","run","menu"]:
         return
     var pending=bridge_file+".tmp"
     var file=FileAccess.open(pending,FileAccess.WRITE)
@@ -461,8 +488,8 @@ func _action(command:String):
     menu.visible=false
     if command=="hide":
         _hide()
-    elif command=="classic" or command=="exit":
-        _bridge("classic")
+    elif command=="exit":
+        if not bridge_file.is_empty():_bridge("exit")
         get_tree().quit()
     elif command=="editor":
         _bridge("editor")
@@ -541,6 +568,7 @@ func _process(delta:float):
         orb_left_eye.position=Vector2(15,24)+aim
         orb_right_eye.position=Vector2(35,24)+aim
         return
+    fur_pull.advance(delta)
     _advance_soft_body(delta)
     antenna_glow.update_glow(t,emotion,delta)
     var camera=get_viewport().get_camera_3d()
@@ -554,10 +582,10 @@ func _process(delta:float):
     var sy=offset.y/100.0
     for i in range(pupils.size()):
         var initial=-0.22 if i==0 else 0.22
-        var desired=Vector3(initial+sx*0.055,-0.01-sy*0.043,0.63)
+        var desired=Vector3(initial+sx*0.055,-0.01-sy*0.043-sad_weight*0.055,0.63)
         pupils[i].position=pupils[i].position.lerp(desired,minf(1,delta*12))
     head.rotation.y=lerpf(head.rotation.y,sx*0.09,minf(1,delta*4))
-    head.rotation.x=lerpf(head.rotation.x,sy*0.06,minf(1,delta*4))
+    head.rotation.x=lerpf(head.rotation.x,sy*0.06+sad_weight*0.22-laugh_weight*0.12,minf(1,delta*6))
     drag_v=lerpf(drag_v,0.0,minf(1,delta*8))
     blinking+=delta
     if blinking>3.1:
@@ -567,17 +595,23 @@ func _process(delta:float):
         if p>0.18:blinking=0.0
 
 func _advance_soft_body(delta:float):
+    sad_weight = lerpf(sad_weight, float(emotion=="sad"), 1.0-exp(-delta*9.0))
+    laugh_weight = lerpf(laugh_weight, float(emotion=="laugh"), 1.0-exp(-delta*12.0))
+    if emotion=="laugh":laugh_time+=delta
+    var jiggle := sin(laugh_time*TAU*4.6)
     # Substeps keep the spring response stable even after a slow frame.
     var remaining=minf(delta,0.12)
     while remaining>0.0:
         var step=minf(remaining,1.0/120.0)
         remaining-=step
-        var target=clampf(0.22+absf(drag_force.x)*0.09+drag_force.y*0.10,0.06,0.34) if dragging else 0.0
-        if emotion=="laugh" and not dragging:target=0.04+0.055*sin(t*18.0)
-        squish_velocity+=((target-squish)*48.0-squish_velocity*5.8)*step
-        squish=clampf(squish+squish_velocity*step,-0.20,0.36)
-        var offset_target=-drag_force*0.14 if dragging else Vector2.ZERO
-        soft_velocity+=((offset_target-soft_offset)*46.0-soft_velocity*6.8)*step
+        var target=clampf(0.265+absf(drag_force.x)*0.10+drag_force.y*0.12,0.06,0.37) if dragging else 0.0
+        if fur_pull.pulling:target=0.095
+        target+=sad_weight*0.06+laugh_weight*(0.055+0.09*jiggle)
+        squish_velocity+=((target-squish)*43.0-squish_velocity*5.4)*step
+        squish=clampf(squish+squish_velocity*step,-0.22,0.39)
+        var offset_target=-drag_force*0.17 if dragging else Vector2.ZERO
+        if fur_pull.pulling:offset_target=Vector2(-fur_pull.displacement.x,fur_pull.displacement.y)*0.14
+        soft_velocity+=((offset_target-soft_offset)*40.0-soft_velocity*6.0)*step
         soft_offset+=soft_velocity*step
         head_lag_velocity+=((soft_offset*1.7-head_lag)*32.0-head_lag_velocity*5.4)*step
         head_lag+=head_lag_velocity*step
@@ -585,43 +619,54 @@ func _advance_soft_body(delta:float):
     var height=1.0-squish
     var width=1.0/sqrt(height)
     robot.scale=Vector3(width,height,width)
-    var giggle_bounce=0.018*sin(t*18.0) if emotion=="laugh" else 0.0
-    robot.position=Vector3(soft_offset.x,0.026*sin(t*2.2)-soft_offset.y+giggle_bounce,0.0)
-    robot.rotation.z=clampf(-soft_offset.x*1.8,-0.22,0.22)
+    var giggle_bounce=laugh_weight*(0.054+0.062*jiggle)
+    robot.position=Vector3(soft_offset.x,0.026*sin(t*2.2)-soft_offset.y+giggle_bounce-sad_weight*0.09,0.0)
+    robot.rotation.z=clampf(-soft_offset.x*1.8+laugh_weight*0.06*sin(laugh_time*12.0)-sad_weight*0.055,-0.25,0.25)
     var tilt=-0.15 if emotion=="curious" else (0.10 if emotion=="sleepy" else 0.0)
     if emotion=="laugh":tilt=0.045*sin(t*13.0)
     elif emotion=="angry":tilt=0.055*sin(t*7.0)
     elif emotion=="dizzy":tilt=0.15*sin(t*5.0)
-    head.position=Vector3(head_lag.x,0.34-head_lag.y+squish*0.18,0.0)
+    head.position=Vector3(head_lag.x,0.34-head_lag.y+squish*0.18-sad_weight*0.10+laugh_weight*0.035*jiggle,0.0)
     head.rotation.z=clampf(-head_lag.x*2.3+tilt,-0.30,0.30)
     # Face, torso and limbs lag differently, then gently wobble back into place.
     head.scale=Vector3(1.0-squish*0.15,1.0+squish*0.18,1.0)
     var arms=0.25 if emotion=="angry" else (0.16*sin(t*13.0) if emotion=="laugh" else 0.0)
     left_hand.rotation.z=-0.26-squish*2.1+head_lag.x*2.0-arms
     right_hand.rotation.z=0.26+squish*2.1+head_lag.x*2.0+arms
-    left_hand.position.y=-0.24+head_lag.y*0.8
-    right_hand.position.y=-0.24-head_lag.y*0.8
+    var tuck=sad_weight*0.13
+    var lift=laugh_weight*(0.10+0.07*jiggle)
+    left_hand.position=Vector3(-0.63+tuck,-0.24+head_lag.y*0.8+lift-tuck*0.55,tuck*0.9)
+    right_hand.position=Vector3(0.63-tuck,-0.24-head_lag.y*0.8+lift-tuck*0.55,tuck*0.9)
+    left_foot.position.y=-0.80+laugh_weight*0.045*jiggle+tuck*0.35
+    right_foot.position.y=-0.80-laugh_weight*0.045*jiggle+tuck*0.35
+    left_foot.rotation.y=-sad_weight*0.28
+    right_foot.rotation.y=sad_weight*0.28
     left_foot.rotation.z=-squish*0.6-soft_offset.x
     right_foot.rotation.z=squish*0.6-soft_offset.x
-    antenna.rotation.z=0.28*sin(t*3.4)+0.035*sin(t*5.7)-head_lag.x*2.5
+    antenna.rotation.z=0.28*sin(t*3.4)+0.035*sin(t*5.7)-head_lag.x*2.5-sad_weight*0.50+laugh_weight*0.16*jiggle
     antenna.rotation.x=0.10*sin(t*2.7)+head_lag.y*1.8
 
 func _set_emotion(value:String,duration:float):
+    if value=="laugh" and emotion!="laugh":laugh_time=0.0
     emotion=value
     emotion_left=duration
     blinking=0.0
     idle_elapsed=0.0
 
 func _show_next_emotion():
-    var choices=["laugh","angry","dizzy","wink","love","curious","sleepy","happy"]
+    var choices=["laugh","angry","sad","dizzy","wink","love","curious","sleepy","happy"]
     _set_emotion(choices[emotion_cycle%choices.size()],1.8)
     if emotion=="laugh":feedback.play_cue("laugh")
     elif emotion=="angry":feedback.play_cue("grumpy")
+    elif emotion=="sad":feedback.play_cue("sad")
     emotion_cycle+=1
 
 func _update_emotion(delta:float):
     emotion_left=maxf(0.0,emotion_left-delta)
-    if dragging:
+    if fur_pull.pulling:
+        if emotion!="sad":_set_emotion("sad",1.4)
+        emotion_left=1.4
+    elif dragging:
         hold_elapsed+=delta
         if not hidden and hold_elapsed>1.2 and not orb_moved and not hold_love:
             hold_love=true
@@ -640,6 +685,7 @@ func _update_emotion(delta:float):
     elif emotion=="excited":eye_scale=Vector3(1.12,0.80,1.0)
     elif emotion=="sleepy":eye_scale=Vector3(1.04,0.22,1.0)
     elif emotion=="angry":eye_scale=Vector3(1.04,0.52,1.0)
+    elif emotion=="sad":eye_scale=Vector3(0.91,0.82,1.0)
     for i in range(pupils.size()):
         var target_scale=eye_scale
         if emotion=="wink":target_scale=Vector3(1.06,0.13 if i==0 else 1.02,1.0)
@@ -653,20 +699,23 @@ func _update_emotion(delta:float):
         pupils[i].scale=pupils[i].scale.lerp(target_scale,minf(1.0,delta*16.0))
         var tilt=0.10 if i==0 else -0.10
         if emotion=="angry":tilt=-0.20 if i==0 else 0.20
+        if emotion=="sad":tilt=0.17 if i==0 else -0.17
         pupils[i].rotation.z=lerpf(pupils[i].rotation.z,
-            tilt if emotion in ["happy","excited","angry"] else 0.0,minf(1.0,delta*12.0))
+            tilt if emotion in ["happy","excited","angry","sad"] else 0.0,minf(1.0,delta*12.0))
     smile.visible=emotion in ["happy","excited","wink","love"]
     surprised_mouth.visible=emotion=="surprised"
     laugh_mouth.visible=emotion=="laugh"
     laugh_mouth.scale.y=1.0+0.10*sin(t*18.0) if emotion=="laugh" else 1.0
     angry_face.visible=emotion=="angry"
+    sad_face.visible=emotion=="sad"
+    if sad_face.visible:sad_face.rotation.z=0.014*sin(t*15.0)
     dizzy_mouth.visible=emotion=="dizzy"
     # The two black eyes on the small cream orb react to touch as well.
     var eye_height=11.0 if dragging else 16.0
     for eye in [orb_left_eye,orb_right_eye]:
         eye.size.y=lerpf(eye.size.y,eye_height,minf(1.0,delta*16.0))
 
-func _begin_hold(pointer:Vector2i):
+func _begin_hold(pointer:Vector2i,point:=Vector2.INF):
     _reset_pet()
     _reset_shake()
     shake_last=pointer
@@ -677,12 +726,23 @@ func _begin_hold(pointer:Vector2i):
     hold_love=false
     drag_from=pointer
     window_from=get_window().position
+    if not hidden and point.is_finite():
+        fur_pull.arm(get_viewport().get_camera_3d(),point,Vector2(pointer))
     _set_emotion("surprised",0.25)
     squish_velocity=1.2
     feedback.play_cue("grab")
 
 func _move_hold(pointer:Vector2i,relative:Vector2):
     if not dragging:return
+    if fur_pull.armed:
+        var already_pulling:bool=fur_pull.pulling
+        if fur_pull.move(get_viewport().get_camera_3d(),Vector2(pointer)):
+            if fur_pull.pulling and not already_pulling:
+                orb_moved=true
+                tap_count=0
+                _set_emotion("sad",1.4)
+                feedback.play_cue("sad")
+            return
     var diff=pointer-drag_from
     if diff.length()>6.0:orb_moved=true
     if hidden:
@@ -702,6 +762,12 @@ func _move_hold(pointer:Vector2i,relative:Vector2):
 func _finish_hold(pointer:Vector2i):
     if not dragging:return
     dragging=false
+    var was_pulling:bool=fur_pull.pulling
+    fur_pull.release()
+    if was_pulling:
+        _set_emotion("sad",1.4)
+        squish_velocity=-0.65
+        return
     if hidden and not orb_moved and (pointer-drag_from).length()<7.0:
         _show()
     elif emotion=="dizzy" and not hidden:
@@ -724,6 +790,7 @@ func _finish_hold(pointer:Vector2i):
         squish_velocity=-1.25
 
 func _cancel_hold():
+    fur_pull.reset()
     _reset_pet()
     _reset_shake()
     tap_count=0
@@ -795,7 +862,7 @@ func _input(e:InputEvent):
 func _unhandled_input(e:InputEvent):
     # Menu and belly buttons consume presses before any grab sound/reaction.
     if e is InputEventMouseButton and e.button_index==MOUSE_BUTTON_LEFT and e.pressed:
-        _begin_hold(DisplayServer.mouse_get_position())
+        _begin_hold(DisplayServer.mouse_get_position(),e.position)
         get_viewport().set_input_as_handled()
     elif e is InputEventMouseMotion and e.button_mask==0:
         _pet_motion(e.position,e.relative)
