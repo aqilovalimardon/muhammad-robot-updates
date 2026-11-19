@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import traceback
 from types import SimpleNamespace
 from unittest.mock import patch
 import zipfile
@@ -79,7 +80,9 @@ def check_host(current_app, install, settings, godot):
     def run_avatar(args, **kwargs):
         # The exported release uses the same resource pack on both platforms.
         # Use the headless display so Windows CI does not need a GPU driver.
-        assert Path(args[0]) == current_app / 'visual3d/MuhammadRobot3D.exe'
+        expected = current_app / 'visual3d/MuhammadRobot3D.exe'
+        # Windows TEMP may use a short (8.3) alias for the resolved install path.
+        assert Path(args[0]).samefile(expected), (args[0], expected)
         engine = [args[0]] if sys.platform == 'win32' else [godot, '--main-pack', str(Path(args[0]).with_suffix('.pck'))]
         return launch(engine + ['--headless'] + args[1:], **kwargs)
 
@@ -94,7 +97,7 @@ def check_host(current_app, install, settings, godot):
         stack.enter_context(patch.object(module.RobotApp, '_offer_3d_retry', lambda self, why: failures.append(why)))
         stack.enter_context(patch.object(subprocess, 'Popen', run_avatar))
         app = module.RobotApp()
-        app.root.report_callback_exception = lambda *exc: failures.append(exc)
+        app.root.report_callback_exception = lambda *exc: failures.append(''.join(traceback.format_exception(*exc)))
         try:
             pump(app.root, lambda: bool(failures) or not marker.exists(), 12)
             assert not failures, failures
@@ -120,6 +123,7 @@ def check_host(current_app, install, settings, godot):
             pump(app.root, lambda: not app._three_d_signal.exists())
             assert not failures, failures
         finally:
+            child = app.preview_3d_process
             app.exit()
             if child is not None:
                 child.wait(timeout=8)
