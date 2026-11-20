@@ -11,19 +11,29 @@ func run(r):
     var file=FileAccess.open(output,FileAccess.WRITE)
     file.store_string("ready\n")
     file.close()
+    var motion_test="--voice-motion-test" in args
+    var sequence=["hello","fly","stop","jump","close","open"] if motion_test else ["hello","close","open"]
     var stage=0
-    var deadline=Time.get_ticks_msec()+30000
+    var deadline=Time.get_ticks_msec()+55000
     while Time.get_ticks_msec()<deadline:
         await r.get_tree().process_frame
-        var passed=(stage==0 and r.emotion=="excited") or (stage==1 and r.hidden) or (stage==2 and not r.hidden)
+        var passed=false
+        match sequence[stage]:
+            "hello":passed=r.raised_sleeve.visible and r.right_hand.position.y>0.2 if motion_test else r.emotion=="excited"
+            "fly":passed=r.motion.flying
+            "stop":passed=not r.motion.flying and not r.motion.jumping
+            "jump":passed=r.motion.jumping and r.motion.jump_height>0.6
+            "close":passed=r.hidden
+            "open":passed=not r.hidden
         if not passed:continue
         file=FileAccess.open(output,FileAccess.READ_WRITE)
         file.seek_end()
-        file.store_string(["hello","close","open"][stage]+"\n")
+        file.store_string(sequence[stage]+"\n")
         file.close()
         stage+=1
-        if stage==3:
+        if stage==sequence.size():
             print("PASS: recorded Hello/Close/Open reached the actual exported 3D scene")
+            if motion_test:print("PASS: six recognized commands raised the hand, flew, stopped, jumped, hid and restored the Windows robot")
             r.get_tree().quit()
             return
     push_error("Voice integration timed out at stage "+str(stage))

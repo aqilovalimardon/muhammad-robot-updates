@@ -28,6 +28,7 @@ def make_host(source, folder, listener_type=None):
         '_restart_mic_when_released','start_microphone','_mic_failed','_maybe_retry_microphone',
         '_poll_mic_events','_signal_real3d','minimize','restore','say'}
     if 'def _dismiss_shared_menu(' in source:methods.add('_dismiss_shared_menu')
+    if 'def _flush_3d_commands(' in source:methods.add('_flush_3d_commands')
     if listener_type is None:
         class Listener:
             def __init__(self,root,events,speaking):
@@ -60,6 +61,7 @@ def make_host(source, folder, listener_type=None):
     h._refresh_mic_status=lambda:None
     h._three_d_active=True
     h._three_d_signal=folder/'voice.cmd'
+    h._pending_3d=[]
     h.minimized=True
     h.voice=SimpleNamespace(speaking=threading.Event(),speak=lambda text:None)
     return h
@@ -93,15 +95,18 @@ def test_recovery(source,folder):
     assert h.mic_active
     spoken=[]
     h.voice.speak=spoken.append
-    for command,expected in [('hello','happy'),('close','hide'),('open','show')]:
+    greeting='wave' if hasattr(h,'_flush_3d_commands') else 'happy'
+    for command,expected in [('hello',greeting),('close','hide'),('open','show')]:
         h._three_d_signal.unlink(missing_ok=True)
         h.listener.events.put(('command',command))
         h._poll_mic_events()
         assert h._three_d_signal.read_text()==expected
     assert len(spoken)==1 and 'Hello, Muhammad!' in spoken[0]
+    h._three_d_signal.unlink()
     h._signal_real3d('hide')
     h.say('Hello, Muhammad!')
     assert h._three_d_signal.read_text()=='hide', 'Greeting cannot swallow Close'
+    h._three_d_signal.unlink()
     h._signal_real3d('show')
     h.say('Hello, Muhammad!')
     assert h._three_d_signal.read_text()=='show', 'Greeting cannot swallow Open'

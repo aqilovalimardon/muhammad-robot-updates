@@ -1,6 +1,17 @@
 # muhammad-robot-updates
 Automatic updates for Muhammad's desktop robot
 
+## v2.2.24 — English voice gestures
+
+| Say | What the robot does |
+| --- | --- |
+| Hello robot | Lifts one hand, waves and speaks its greeting. |
+| Fly robot | Flies across the current monitor with a fading blue trail. |
+| Stop robot | Stops where it is and clears the trail. |
+| Jump robot | Bends, jumps once and lands. During flight it hops and continues flying. |
+
+Grab the robot or open its menu to pause movement. **Close robot** folds it into the cream orb. **Open robot** brings it back at rest. The same installed offline voice model recognizes all six phrases.
+
 ## v2.2.23 — soft fur and whole-body expressions
 
 - Hold a tuft at the edge of the head or body and pull outward. The tuft stretches under the pointer as the robot lowers its head, tucks its arms and gives a quiet sigh. The fur springs back when released.

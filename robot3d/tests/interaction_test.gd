@@ -286,6 +286,7 @@ func run(r):
     r._show()
     check(played.size()==count and not r.hidden,"mute keeps open/close working")
     await _coat_checks(r)
+    await motion_checks(r)
     r.feedback.cue_played.disconnect(heard_callback)
     r.feedback.player.stop()
     await r.get_tree().create_timer(0.35).timeout
@@ -369,3 +370,110 @@ func _coat_checks(r):
         "laughter bounces the body and lifts the arms")
     check(r.feedback.sounds["sad"].data!=r.feedback.sounds["laugh"].data,"sigh and giggle have distinct audio")
     if not failed:print("PASS: local fur stretch, 3D-only gestures, quiet sad/laugh poses, mute and recovery")
+
+func motion_checks(r):
+    r.set_process(false)
+    # The model also handles a monitor to the left of the primary display.
+    var path = r.DesktopMotion.new()
+    var bounds := Rect2i(-1440,50,1264,590)
+    var origin := Vector2i(-780,390)
+    path.fly(origin,bounds)
+    check(path.location==Vector2(origin),"flight starts where the robot is")
+    var far := 0.0
+    for i in 500:
+        path.advance(1.0/30.0)
+        check(path.location==path.location.clamp(Vector2(bounds.position),Vector2(bounds.end)),"flight stays on its monitor")
+        far=maxf(far,path.location.distance_to(Vector2(origin)))
+    check(far>390.0,"flight crosses the desktop")
+    var airborne=path.location
+    path.fly(origin,bounds)
+    check(path.location==airborne,"repeating Fly does not restart the path")
+    path.jump(Vector2i(airborne),bounds)
+    for i in 10:path.advance(1.0/30.0)
+    check(path.flying and path.jump_height>0.3,"an airborne hop preserves the flight path")
+    path.stop()
+    var stopped=path.location
+    for i in 30:path.advance(1.0/30.0)
+    check(path.location==stopped and not path.flying and not path.jumping,"Stop holds the exact current position")
+    path.jump(origin,bounds)
+    var peak := 0.0
+    for i in 40:
+        path.advance(1.0/30.0)
+        peak=maxf(peak,origin.y-path.location.y)
+    check(peak>95.0 and path.location==Vector2(origin) and not path.jumping,"one hop rises and lands at its starting point")
+    path.jump(bounds.position,bounds)
+    path.advance(0.10)
+    path.advance(0.10)
+    check(path.jump_height>0.0 and path.location.y==bounds.position.y,"a hop at the top keeps the robot on screen")
+
+    r._cancel_hold()
+    r._handle_host_command("wave")
+    for i in 12:r._process(1.0/30.0)
+    check(r.raised_sleeve.visible and r.right_hand.position.y>0.28 and r.left_hand.position.y<0.0,"Hello raises one attached arm")
+    if DisplayServer.get_name()!="headless":
+        await RenderingServer.frame_post_draw
+        _review_frame(r,"hello")
+    for i in 40:r._process(1.0/30.0)
+    check(not r.raised_sleeve.visible and r.right_hand.position.y<0.0,"waving finishes naturally")
+    var native := DisplayServer.get_name()!="headless"
+    var window:Window=r.get_window()
+    if native:
+        window.position=r._motion_limits().get_center()
+        await r.get_tree().process_frame
+    var start=window.position
+    r._handle_host_command("fly")
+    for i in 35:r._process(1.0/30.0)
+    check(r.motion.flying,"Fly starts continuous motion")
+    if native:
+        await RenderingServer.frame_post_draw
+        var layer:Window=r.flight_trail
+        check(window.position.distance_to(start)>85.0 and window.size==r.DESK_SIZE,"real avatar window travels at its original size")
+        check(layer!=null and layer.visible and layer.mouse_passthrough and layer.unfocusable,"trail is visible and click-through")
+        var wake=layer.get_texture().get_image()
+        var pixels=0
+        var avatar=Rect2i(window.position,window.size)
+        for y in wake.get_height():
+            for x in wake.get_width():
+                if wake.get_pixel(x,y).a>0.15 and not avatar.has_point(layer.position+Vector2i(x,y)):pixels+=1
+        check(pixels>12,"the rendered trail is visible behind and beyond the avatar window")
+        var folder=OS.get_environment("ROBOT_REVIEW_DIR")
+        if not folder.is_empty():
+            var both=Rect2i(layer.position,layer.size).merge(avatar)
+            var picture=Image.create_empty(both.size.x,both.size.y,false,Image.FORMAT_RGBA8)
+            picture.fill(Color("263447"))
+            picture.blend_rect(wake,Rect2i(Vector2i.ZERO,wake.get_size()),layer.position-both.position)
+            var robot_image=window.get_texture().get_image()
+            picture.blend_rect(robot_image,Rect2i(Vector2i.ZERO,robot_image.get_size()),window.position-both.position)
+            picture.save_png(folder+"/flight.png")
+    r._handle_host_command("stop")
+    var freeze=window.position
+    for i in 18:r._process(1.0/30.0)
+    check(not r.motion.flying and window.position==freeze and (r.flight_trail==null or not r.flight_trail.visible),"Stop freezes the window and clears the wake")
+    if native:
+        window.position=Vector2i(freeze.x,r._motion_limits().get_center().y)
+        freeze=window.position
+    r._handle_host_command("jump")
+    for i in 12:r._process(1.0/30.0)
+    check(r.motion.jump_height>0.85 and r.left_foot.position.y>-0.73,"Jump tucks both feet")
+    if native:
+        await RenderingServer.frame_post_draw
+        check(window.position.y<freeze.y-40,"the real window rises on Jump")
+        _review_frame(r,"jump")
+    for i in 25:r._process(1.0/30.0)
+    check(window.position==freeze and not r.motion.jumping,"the real jump lands once")
+    r._handle_host_command("fly")
+    r._begin_hold(Vector2i(100,100))
+    check(r.dragging and not r.motion.flying,"mouse hold takes control during flight")
+    r._cancel_hold()
+    r._handle_host_command("fly")
+    r._hide()
+    for command in ["wave","fly","jump","stop"]:r._handle_host_command(command)
+    check(r.hidden and not r.motion.flying and not r.motion.jumping and not r.motion.waving,"closed orb ignores movement commands")
+    r._show()
+    check(not r.hidden and not r.motion.flying,"Open restores the stationary plush")
+    if not failed:print("PASS: Hello hand wave, bounded desktop flight, trail, immediate stop, single jump and manual control")
+
+func _review_frame(r,label:String):
+    var folder=OS.get_environment("ROBOT_REVIEW_DIR")
+    if not folder.is_empty() and DisplayServer.get_name()!="headless":
+        r.get_viewport().get_texture().get_image().save_png(folder+"/"+label+".png")

@@ -16,18 +16,25 @@ from unittest.mock import patch
 import zipfile
 
 from build_v2223_plush import APP, CORE, FILES, PACK, VERSION
-from test_v2221_voice import load_commands, test_audio_stream, test_recognition_tools, test_recovery, test_speech
+from test_v2221_voice import load_commands, make_host, test_audio_stream, test_recognition_tools, test_recovery, test_speech
 from test_v2222_popup import popup_checks, pump
 
 
-def upgrade(baseline, archive, root):
+def upgrade(baseline, archive, root, motion=False):
+    previous, version = ('2.2.23','2.2.24') if motion else ('2.2.22',VERSION)
     manifest = json.loads((archive.parent / 'manifest.json').read_text())
-    assert manifest['version'] == VERSION and manifest['zip'] == archive.name
+    assert manifest['version'] == version and manifest['zip'] == archive.name
     with zipfile.ZipFile(baseline) as old, zipfile.ZipFile(archive) as new:
         assert new.testzip() is None and set(new.namelist()) == FILES
-        for name in FILES - {APP, CORE, PACK}:
+        changed = {APP, CORE, PACK}
+        if motion:
+            voice = 'app/voice_commands.py'
+            assert new.read(voice) != old.read(voice)
+            assert new.read(voice) == (Path(__file__).resolve().parents[1]/'runtime/voice_commands.py').read_bytes()
+            changed.add(voice)
+        for name in FILES - changed:
             assert new.read(name) == old.read(name), name
-        assert new.read(CORE) == old.read(CORE).replace(b"'2.2.22'", b"'2.2.23'", 1)
+        assert new.read(CORE) == old.read(CORE).replace(f"'{previous}'".encode(), f"'{version}'".encode(), 1)
         assert old.read(PACK) != new.read(PACK)
         for name in FILES:
             if name.endswith('.py'):
@@ -39,8 +46,9 @@ def upgrade(baseline, archive, root):
             assert ast.dump(get_class(before)) == ast.dump(get_class(after)), name
         old_core = {}
         exec(compile(old.read(CORE), CORE, 'exec'), old_core)
-        old.extractall(root / 'versions/2.2.22')
-    (root / 'current.json').write_text('{"version":"2.2.22"}')
+        old.extractall(root / 'versions' / previous)
+        previous_app = old.read(APP)
+    (root / 'current.json').write_text(json.dumps({'version': previous}))
     drive = root.parent / 'Drive'
     settings = dict(microphone_enabled=False, microphone_user_disabled=True, voice_recovery_v2221=True,
                     voice_intro_seen=True, robot_visual_mode='classic', last_script='my_lesson',
@@ -56,10 +64,12 @@ def upgrade(baseline, archive, root):
         path.write_bytes(data)
     for _ in range(2):
         assert old_core['install_release'](manifest, archive, root)
-        assert json.loads((root / 'current.json').read_text()) == {'version': VERSION, 'previous': '2.2.22'}
+        assert json.loads((root / 'current.json').read_text()) == {'version': version, 'previous': previous}
         assert all(path.read_bytes() == data for path, data in samples.items())
-    assert (root / 'versions/2.2.22/app/assets_classic/frame_00.png').is_file()
-    current_app = root / 'versions' / VERSION / 'app'
+    assert (root / 'versions' / previous / APP).read_bytes() == previous_app
+    if not motion:
+        assert (root / 'versions/2.2.22/app/assets_classic/frame_00.png').is_file()
+    current_app = root / 'versions' / version / 'app'
     assert not (current_app / 'assets').exists() and not (current_app / 'assets_classic').exists()
     print('PASS: the deployed updater installs and retries without changing user settings, Studio files, Drive, voice model or rollback')
     return current_app, settings
@@ -137,23 +147,56 @@ def main():
     parser.add_argument('baseline', type=Path)
     parser.add_argument('archive', type=Path)
     parser.add_argument('--ui', action='store_true')
+    parser.add_argument('--motion', action='store_true', help='Test the v2.2.23 to v2.2.24 upgrade and motion vocabulary')
     parser.add_argument('--godot', type=Path, help='Linux Godot executable for the exported-pack host test')
     args = parser.parse_args()
     with tempfile.TemporaryDirectory() as temp:
         folder = Path(temp)
         install = folder / 'MuhammadRobot'
-        current_app, settings = upgrade(args.baseline, args.archive, install)
+        current_app, settings = upgrade(args.baseline, args.archive, install, args.motion)
         source = (current_app / 'robot_app.py').read_text(encoding='utf-8')
         commands = load_commands(args.archive)
         test_recognition_tools(commands)
         test_recovery(source, folder)
         test_speech(source, folder)
         test_audio_stream(commands, folder)
+        if args.motion:
+            check_motion_voice(commands, source, folder)
         if args.ui:
             popup_checks(args.baseline, args.archive, only_3d=True)
             if sys.platform != 'win32' and args.godot is None:
                 parser.error('--ui on Linux requires --godot')
             check_host(current_app, install, settings, str(args.godot.resolve()) if args.godot else None)
+
+
+def check_motion_voice(commands, source, folder):
+    grammar = json.loads(commands.GRAMMAR)
+    assert all(c+' robot' in grammar for c in ('hello','fly','stop','jump','close','open'))
+    for c in ('fly','stop','jump'):
+        assert commands.normalize_command(c.upper()+' robot!') == c
+    for text in ('stop', 'the fly', 'jump rope', 'do not fly robot', 'robot'):
+        assert commands.normalize_command(text) is None
+    gate = commands.CommandGate()
+    assert gate.accept('stop robot',False,1.0) is None
+    assert gate.accept('stop robot',False,1.2) == 'stop'
+    assert gate.accept('stop robot',True,1.45) is None
+    for c in ('fly','jump'):
+        assert gate.accept(c+' robot',False,2.0) is None
+        assert gate.accept(c+' robot',False,2.3) is None
+        assert gate.accept(c+' robot',True,2.5) == c
+    h = make_host(source, folder)
+    h._three_d_signal.unlink(missing_ok=True)
+    h._enable_existing_mic()
+    for c in ('fly','jump','stop','hello','close','open'):
+        h.listener.events.put(('command', c))
+    h._poll_mic_events()
+    # Stop supersedes queued jumps and Close supersedes an unread wave.
+    for expected in ('fly','stop','hide','show'):
+        assert h._three_d_signal.read_text() == expected
+        h._three_d_signal.unlink()
+        h._poll_mic_events()
+    assert not h._pending_3d and not h._three_d_signal.exists()
+    print('PASS: six offline commands, immediate Stop, no duplicate jump and ordered 3D delivery')
 
 
 if __name__ == '__main__':

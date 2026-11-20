@@ -105,17 +105,19 @@ def normalize_command(text:str) -> str | None:
     if cleaned in {'close robot','close the robot','hide robot','hide the robot','robot close','hey robot close','please close robot'}:return 'close'
     if cleaned in {'open robot','open the robot','show robot','show the robot','robot open','hey robot open','please open robot'}:return 'open'
     if cleaned in {'hello robot','helo robot','hallo robot','hey robot','hi robot','hello robo','hello the robot'}:return 'hello'
+    if cleaned in MOTION_COMMANDS:return MOTION_COMMANDS[cleaned]
     return None
 
 
+MOTION_COMMANDS = {'fly robot': 'fly', 'stop robot': 'stop', 'jump robot': 'jump'}
 GRAMMAR = json.dumps(['open robot','close robot','hello robot','open the robot',
     'close the robot','hide robot','hide the robot','robot close','show robot',
     'show the robot','robot open','hey robot open','hey robot close',
-    'please open robot','please close robot','hello the robot','hey robot','hi robot','[unk]'])
+    'please open robot','please close robot','hello the robot','hey robot','hi robot',*MOTION_COMMANDS,'[unk]'])
 
 
 class CommandGate:
-    """Fast stable Open/Close partials; one event per utterance, no prefix greeting."""
+    """Act early on stable Open, Close and Stop. Fire each utterance once."""
     def __init__(self):
         self.partial=None
         self.since=0.0
@@ -128,7 +130,7 @@ class CommandGate:
             self.partial=self.sent=None
             self.since=0.0
             return result
-        if command not in ('open','close'):
+        if command not in ('open','close','stop'):
             self.partial=None
             return None
         if command != self.partial:

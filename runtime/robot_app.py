@@ -340,6 +340,7 @@ class RobotApp:
         self.preview_3d_process = None
         self._three_d_bridge = None
         self._three_d_signal = None
+        self._pending_3d = []
         self._build_menu()
         self.action_queue=[]
         self.updates=queue.Queue()
@@ -352,15 +353,25 @@ class RobotApp:
         self.root.protocol('WM_DELETE_WINDOW',self.exit)
 
     def _signal_real3d(self,command):
-        signal=getattr(self,'_three_d_signal',None)
-        if signal is None or command not in ('hide','show','sound','emotion','happy'):return
-        pending=signal.with_suffix('.tmp')
+        signal = self._three_d_signal
+        if signal is None or command not in ('hide','show','sound','emotion','happy','wave','fly','stop','jump'):
+            return
+        if command == 'happy' and (self._pending_3d or signal.is_file()):
+            return
+        if command in ('stop', 'hide'):
+            self._pending_3d = [item for item in self._pending_3d if item not in ('fly', 'jump', 'wave')]
+        self._pending_3d.append(command)
+        self._flush_3d_commands()
+
+    def _flush_3d_commands(self):
+        signal = self._three_d_signal
+        if not self._pending_3d or signal is None or signal.exists():
+            return
+        pending = signal.with_suffix('.tmp')
         try:
-            # A greeting animation must not overwrite an unread Open/Close command.
-            if command=='happy' and signal.is_file() and signal.read_text(encoding='utf-8').strip() in ('hide','show'):
-                return
-            pending.write_text(command,encoding='utf-8')
+            pending.write_text(self._pending_3d[0],encoding='utf-8')
             pending.replace(signal)
+            self._pending_3d.pop(0)
         except OSError:
             try:pending.unlink(missing_ok=True)
             except OSError:pass
@@ -452,8 +463,8 @@ class RobotApp:
         self.menu.add_command(label='Exit Robot',command=self.exit)
     def popup(self,event):
         self._show_shared_menu(event)
-    def say(self,text):
-        if getattr(self,'_three_d_active',False):self._signal_real3d('happy')
+    def say(self,text,gesture='happy'):
+        if getattr(self,'_three_d_active',False):self._signal_real3d(gesture)
         self.voice.speak(text)
     def start_greeting(self):self.say('Hello, Muhammad! Let us learn Python!')
     def open_editor(self):
@@ -517,7 +528,7 @@ class RobotApp:
         if not self.root.winfo_exists():return
         if messagebox.askyesno('English voice commands',
             'Would you like to enable OFFLINE English voice commands?\n\n'
-            'Muhammad can say: Open robot, Close robot, Hello robot.\n'
+            'Say Hello robot, Fly robot, Stop robot, Jump robot, Open robot or Close robot.\n'
             'The microphone audio stays on this computer.\n\n'
             'One-time setup downloads about 40 MB for the voice model plus Python libraries.\n'
             'Use only with permission on a school-managed laptop.', parent=self.root):
@@ -574,7 +585,7 @@ class RobotApp:
             f'Last speech heard: {self.mic_last_heard}\n'
             f'Last command: {self.mic_last_command}\n'
             f'Robot speaking now: {"YES" if self.voice.speaking.is_set() else "NO"}\n\n'
-            'Say clearly: HELLO ROBOT, CLOSE ROBOT, OPEN ROBOT.\n'
+            'Say Hello robot, Fly robot, Stop robot, Jump robot, Open robot or Close robot.\n'
             'If the last speech is blank, check microphone input / permissions.\n'
             'The voice model runs locally; speech is not sent to a server.')
 
@@ -660,7 +671,10 @@ class RobotApp:
                     self.mic_last_command=value
                     if value=='open':self.restore()
                     elif value=='close':self.minimize()
-                    elif value=='hello':self.say('Hello, Muhammad! Let us code together!')
+                    elif value=='hello':self.say('Hello, Muhammad! Let us code together!', 'wave')
+                    elif value in ('fly','stop','jump'):
+                        self._dismiss_shared_menu()
+                        self._signal_real3d(value)
                 elif event=='mic_heard':self.mic_last_heard=str(value)[:100] or '(silence)'
                 elif event=='mic_device':self.mic_device=str(value)[:150]
                 elif event=='mic_error':self._mic_failed(value)
@@ -679,12 +693,13 @@ class RobotApp:
                     if hasattr(self,'voice_dialog') and self.voice_dialog[0].winfo_exists():self.voice_dialog[0].destroy()
                     if event=='setup_done':
                         self.start_microphone()
-                        messagebox.showinfo('Voice commands','Ready! Say: Hello robot, Close robot, Open robot.',parent=self.root)
+                        messagebox.showinfo('Voice commands','Ready! Say Hello robot, Fly robot, Stop robot, Jump robot, Open robot or Close robot.',parent=self.root)
                     else:messagebox.showerror('Voice setup',value,parent=self.root)
         except queue.Empty:pass
         finally:
             # Even a dismissed window or failing command cannot kill the event pump.
             try:
+                self._flush_3d_commands()
                 self._maybe_retry_microphone()
                 self._refresh_mic_status()
             finally:
@@ -893,6 +908,7 @@ class RobotApp:
 
     def _stop_real3d(self):
         self._three_d_active=False
+        self._pending_3d.clear()
         process=getattr(self,'preview_3d_process',None)
         if process is not None and process.poll() is None:
             try:process.terminate()

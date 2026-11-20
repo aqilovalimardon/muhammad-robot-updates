@@ -69,7 +69,7 @@ def check_native_speech(native):
     finally:release(stream)
 
 
-def main(archive, fixtures, with_menu=False):
+def main(archive, fixtures, with_menu=False, motion=False):
     archive,fixtures=Path(archive).resolve(),Path(fixtures).resolve()
     commands=load_commands(archive)
     import vosk
@@ -106,11 +106,14 @@ def main(archive, fixtures, with_menu=False):
         exe=folder/'installed/app/visual3d/MuhammadRobot3D.exe'
         log=Path('windows-voice-integration.log').resolve()
         with log.open('w',encoding='utf-8') as output:
-            process=subprocess.Popen([str(exe),'--headless','--','--robot-signal',str(host._three_d_signal),
-                '--voice-integration-test','--voice-ack',str(ack)],cwd=exe.parent,stdout=output,stderr=subprocess.STDOUT)
+            args=[str(exe),'--headless','--','--robot-signal',str(host._three_d_signal),
+                  '--voice-integration-test','--voice-ack',str(ack)]
+            if motion:args.append('--voice-motion-test')
+            process=subprocess.Popen(args,cwd=exe.parent,stdout=output,stderr=subprocess.STDOUT)
             try:
                 wait_for(ack,'ready',process)
-                for command in ('hello','close','open'):
+                sequence=('hello','fly','stop','jump','close','open') if motion else ('hello','close','open')
+                for command in sequence:
                     if with_menu:
                         host._show_shared_menu()
                         host.root.update()
@@ -133,7 +136,7 @@ def main(archive, fixtures, with_menu=False):
                     wait_for(ack,command,process,host.root.update if with_menu else None)
                     assert host.mic_last_command==command,(command,host.mic_last_heard)
                     if with_menu:
-                        if command in ('open','close'):assert host._shared_popup is None
+                        if command in ('open','close','fly','stop','jump'):assert host._shared_popup is None
                         host._dismiss_shared_menu()
                 assert process.wait(timeout=10)==0
                 assert spoken==['Hello, Muhammad! Let us code together!']
@@ -147,8 +150,17 @@ def main(archive, fixtures, with_menu=False):
                     process.wait(timeout=5)
         print(log.read_text(encoding='utf-8'))
         assert 'PASS: recorded Hello/Close/Open' in log.read_text(encoding='utf-8')
+        if motion:assert 'PASS: six recognized commands' in log.read_text(encoding='utf-8')
     print('PASS: real Windows SAPI + Vosk audio recognition + host event dispatch + exported 3D Hello/Close/Open')
     if with_menu:print('PASS: real recognized audio drives 3D Close/Open while the shared popup is open and Tk timers run')
 
 
-if __name__=='__main__':main(*sys.argv[1:])
+if __name__=='__main__':
+    import argparse
+    parser=argparse.ArgumentParser()
+    parser.add_argument('archive')
+    parser.add_argument('fixtures')
+    parser.add_argument('--menu-open',action='store_true')
+    parser.add_argument('--motion',action='store_true')
+    options=parser.parse_args()
+    main(options.archive,options.fixtures,options.menu_open,options.motion)

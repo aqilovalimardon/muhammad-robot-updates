@@ -4,6 +4,8 @@ const Feedback = preload("res://robot_feedback.gd")
 const PlushOrb = preload("res://plush_orb.gd")
 const AntennaGlow = preload("res://antenna_glow.gd")
 const PlushPull = preload("res://plush_pull.gd")
+const DesktopMotion = preload("res://desktop_motion.gd")
+const FlightTrail = preload("res://flight_trail.gd")
 const DESK_SIZE=Vector2i(176,200)
 const ORB_SIZE=Vector2i(64,64)
 const CREAM=Color(0.89,0.78,0.64)
@@ -34,6 +36,9 @@ var squish_velocity=0.0
 var spring_head=0.0
 var left_hand:MeshInstance3D
 var right_hand:MeshInstance3D
+var raised_sleeve:MeshInstance3D
+var motion := DesktopMotion.new()
+var flight_trail: FlightTrail
 var feedback
 var sound_button:Button
 var smile:Node3D
@@ -109,7 +114,7 @@ func _ready():
     w.focus_exited.connect(_on_focus_exited)
     if "--render-test" in OS.get_cmdline_user_args():
         get_tree().create_timer(2.0).timeout.connect(_save_and_quit)
-    if "--interaction-test" in cmd:
+    if "--interaction-test" in cmd or "--motion-test" in cmd:
         call_deferred("_run_interaction_tests")
     elif "--voice-integration-test" in cmd:
         call_deferred("_run_voice_bridge_test")
@@ -123,7 +128,10 @@ func _capture_review():
 
 func _run_interaction_tests():
     var test=load("res://tests/interaction_test.gd").new()
-    await test.run(self)
+    if "--motion-test" in OS.get_cmdline_user_args():
+        await test.motion_checks(self)
+    else:
+        await test.run(self)
     get_tree().quit(1 if test.failed else 0)
 
 func _run_voice_bridge_test():
@@ -249,6 +257,8 @@ func _character():
     left_hand.rotation_degrees.z=-15
     right_hand=_sphere(robot,"RightHand",Vector3(0.63,-0.24,0),Vector3(0.21,0.32,0.22),soft)
     right_hand.rotation_degrees.z=15
+    raised_sleeve=_sphere(robot,"RaisedSleeve",Vector3.ZERO,Vector3(0.12,0.20,0.12),soft)
+    raised_sleeve.hide()
     pet_surfaces.append(left_hand)
     pet_surfaces.append(right_hand)
     left_foot=_sphere(robot,"FootLeft",Vector3(-0.30,-0.80,0.18),Vector3(0.29,0.22,0.30),soft)
@@ -462,6 +472,7 @@ func _controls():
     orb_right_eye.position=Vector2(35,24)
 
 func _toggle_menu():
+    _stop_motion()
     _cancel_hold()
     if not bridge_file.is_empty():
         menu.visible=false
@@ -503,6 +514,7 @@ func _action(command:String):
 
 func _hide():
     if hidden:return
+    _stop_motion()
     _cancel_hold()
     feedback.play_cue("close")
     hidden=true
@@ -512,8 +524,8 @@ func _hide():
     small_eye.visible=true
     old_position=get_window().position
     get_window().size=ORB_SIZE
-    var screen=DisplayServer.screen_get_size()
-    get_window().position=Vector2i(16,maxi(8,screen.y-110))
+    var area=_work_area()
+    get_window().position=area.position+Vector2i(16,maxi(8,area.size.y-110))
     Engine.max_fps=24
 
 func _show():
@@ -527,9 +539,8 @@ func _show():
     belly.visible=true
     small_eye.visible=false
     get_window().size=DESK_SIZE
-    var screen=DisplayServer.screen_get_size()
-    get_window().position=Vector2i(clampi(old_position.x,0,maxi(0,screen.x-DESK_SIZE.x)),
-                                   clampi(old_position.y,0,maxi(0,screen.y-DESK_SIZE.y)))
+    var bounds = _motion_limits()
+    get_window().position = old_position.clamp(bounds.position, bounds.end)
     Engine.max_fps=30
 
 func _listen_to_python_voice(delta:float):
@@ -543,6 +554,9 @@ func _listen_to_python_voice(delta:float):
     if DirAccess.rename_absolute(signal_file,claimed)!=OK:return
     var data=FileAccess.get_file_as_string(claimed).strip_edges()
     DirAccess.remove_absolute(claimed)
+    _handle_host_command(data)
+
+func _handle_host_command(data: String):
     if data=="hide":
         _hide()
     elif data=="show":
@@ -554,6 +568,76 @@ func _listen_to_python_voice(delta:float):
         _show_next_emotion()
     elif data=="happy":
         _set_emotion("excited",1.2)
+    elif data=="stop":
+        _stop_motion()
+    elif not hidden and not dragging:
+        match data:
+            "wave":
+                motion.wave()
+                _set_emotion("excited",1.35)
+            "fly":
+                menu.visible=false
+                motion.fly(get_window().position,_motion_limits())
+            "jump":
+                menu.visible=false
+                motion.jump(get_window().position,_motion_limits())
+
+func _work_area() -> Rect2i:
+    var window := get_window()
+    var area := DisplayServer.screen_get_usable_rect(window.current_screen)
+    if not area.has_area():
+        area = Rect2i(DisplayServer.screen_get_position(window.current_screen),
+                      DisplayServer.screen_get_size(window.current_screen))
+    return area
+
+func _motion_limits() -> Rect2i:
+    var area := _work_area()
+    return Rect2i(area.position,(area.size-DESK_SIZE).max(Vector2i.ZERO))
+
+func _stop_motion():
+    motion.stop()
+    if flight_trail != null:
+        flight_trail.clear_trail()
+
+func _advance_motion(delta: float):
+    var moving := motion.flying or motion.jumping
+    motion.advance(delta)
+    if not moving:
+        return
+    get_window().position = Vector2i(motion.location.round())
+    if motion.flying and DisplayServer.get_name() != "headless":
+        if flight_trail == null:
+            flight_trail = FlightTrail.new()
+            add_child(flight_trail)
+        var direction := motion.velocity.normalized()
+        var exhaust := Vector2(get_window().position)+Vector2(88.0,110.0)-direction*47.0
+        flight_trail.sample(exhaust,delta)
+
+func _apply_motion_pose():
+    if motion.flying:
+        var bank := clampf(motion.velocity.x/255.0,-1.0,1.0)
+        robot.rotation.z -= 0.13*bank
+        left_hand.rotation.z -= 0.38
+        right_hand.rotation.z += 0.38
+        left_hand.position.x -= 0.045
+        right_hand.position.x += 0.045
+        antenna.rotation.z += 0.20*bank
+    if motion.jumping:
+        robot.scale *= Vector3(1.0+0.065*motion.crouch,1.0-0.14*motion.crouch,1.0+0.065*motion.crouch)
+        robot.position.y += 0.10*motion.jump_height-0.08*motion.crouch
+        left_hand.position.y += 0.16*motion.jump_height
+        right_hand.position.y += 0.16*motion.jump_height
+        left_foot.position.y += 0.12*motion.jump_height
+        right_foot.position.y += 0.12*motion.jump_height
+    raised_sleeve.visible = motion.hand_raise>0.01
+    if raised_sleeve.visible:
+        right_hand.position += Vector3(0.17*motion.hand_raise+0.065*motion.hand_swing,0.63*motion.hand_raise,0.15*motion.hand_raise)
+        right_hand.rotation.z += 0.48*motion.hand_raise+0.29*motion.hand_swing
+        var shoulder := Vector3(0.48,-0.19,0.04)
+        var arm := right_hand.position-shoulder
+        raised_sleeve.position = shoulder+arm*0.47
+        raised_sleeve.quaternion = Quaternion(Vector3.UP,arm.normalized())
+        raised_sleeve.scale = Vector3(0.13,arm.length()*0.55,0.13)
 
 func _process(delta:float):
     t+=minf(delta,0.05)
@@ -568,8 +652,10 @@ func _process(delta:float):
         orb_left_eye.position=Vector2(15,24)+aim
         orb_right_eye.position=Vector2(35,24)+aim
         return
+    _advance_motion(delta)
     fur_pull.advance(delta)
     _advance_soft_body(delta)
+    _apply_motion_pose()
     antenna_glow.update_glow(t,emotion,delta)
     var camera=get_viewport().get_camera_3d()
     belly.position=camera.unproject_position(robot.to_global(Vector3(0,-0.37,0.57)))-belly.size*0.5
@@ -716,6 +802,7 @@ func _update_emotion(delta:float):
         eye.size.y=lerpf(eye.size.y,eye_height,minf(1.0,delta*16.0))
 
 func _begin_hold(pointer:Vector2i,point:=Vector2.INF):
+    _stop_motion()
     _reset_pet()
     _reset_shake()
     shake_last=pointer
@@ -746,9 +833,8 @@ func _move_hold(pointer:Vector2i,relative:Vector2):
     var diff=pointer-drag_from
     if diff.length()>6.0:orb_moved=true
     if hidden:
-        var screen=DisplayServer.screen_get_size()
-        get_window().position=Vector2i(clampi(window_from.x+diff.x,0,maxi(0,screen.x-ORB_SIZE.x)),
-            clampi(window_from.y+diff.y,0,maxi(0,screen.y-ORB_SIZE.y)))
+        var area=_work_area()
+        get_window().position=(window_from+diff).clamp(area.position,area.position+(area.size-ORB_SIZE).max(Vector2i.ZERO))
     else:
         get_window().position=window_from+diff
         drag_v=clampf(relative.x*0.45,-16.0,16.0)

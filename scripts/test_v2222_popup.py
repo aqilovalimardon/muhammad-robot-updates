@@ -102,6 +102,7 @@ def popup_checks(baseline,output,only_3d=False):
                 h.root.after(40,lambda c=command:h.mic_events.put(('command',c)))
                 pump(h.root,lambda:h._shared_popup is None)
                 assert h._three_d_signal.read_text()==expected
+                h._three_d_signal.unlink()  # The real 3D window consumes each delivered command.
             # Opening button still held must not dismiss; a NEW outside press must.
             pointer=h._popup_pointer
             point=[1,20,20]
