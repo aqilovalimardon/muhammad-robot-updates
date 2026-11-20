@@ -123,7 +123,6 @@ jobs:
       - name: Render the native Windows avatar and click-through trail
         shell: pwsh
         env:
-          GALLIUM_DRIVER: llvmpipe
           ROBOT_REVIEW_DIR: ${{ github.workspace }}/windows-review
         run: |
           $ErrorActionPreference = 'Stop'
@@ -132,14 +131,23 @@ jobs:
           $unpacked = Join-Path $env:RUNNER_TEMP 'mesa-flight'
           curl.exe -fsSL --retry 3 'https://github.com/pal1000/mesa-dist-win/releases/download/26.3.0/mesa3d-26.3.0-release-msvc.7z' -o $mesa
           if ($LASTEXITCODE -ne 0 -or (Get-FileHash $mesa).Hash -ne 'c505fcc77e8f63a09d7ddac086591d2f542c0698d37fc9e3094685a34d0d9991') { throw 'Test renderer download failed verification' }
-          7z x $mesa "-o$unpacked" x64/opengl32.dll x64/libgallium_wgl.dll -y
+          7z x $mesa "-o$unpacked" x64/vulkan_lvp.dll x64/lvp_icd.x86_64.json -y
           if ($LASTEXITCODE -ne 0) { throw 'Could not extract the test renderer' }
-          Copy-Item "$unpacked/x64/*.dll" -Destination $visual
+          $loader = Join-Path $env:RUNNER_TEMP 'vulkan-flight.zip'
+          curl.exe -fsSL --retry 3 'https://sdk.lunarg.com/sdk/download/1.4.328.1/windows/VulkanRT-X64-1.4.328.1-Components.zip' -o $loader
+          if ($LASTEXITCODE -ne 0 -or (Get-FileHash $loader).Hash -ne '293efbb2c11e60429df7770f40e3c5c811a7fa42af81de0cc41e8718ddb2b373') { throw 'Test loader download failed verification' }
+          Expand-Archive -LiteralPath $loader -DestinationPath "$unpacked/loader"
+          Copy-Item "$unpacked/loader/VulkanRT-X64-1.4.328.1-Components/x64/vulkan-1.dll" -Destination $visual
+          $env:VK_DRIVER_FILES = (Resolve-Path "$unpacked/x64/lvp_icd.x86_64.json").Path
           New-Item -ItemType Directory -Force $env:ROBOT_REVIEW_DIR | Out-Null
           $log = Join-Path $PWD 'windows-native-motion.log'
-          $args3d = @('--rendering-driver','opengl3','--audio-driver','Dummy','--log-file',('"' + $log + '"'),'--','--motion-test')
+          $args3d = @('--rendering-method','mobile','--rendering-driver','vulkan','--audio-driver','Dummy','--log-file',('"' + $log + '"'),'--','--motion-test')
           $p = Start-Process -FilePath "$visual/MuhammadRobot3D.exe" -WorkingDirectory $visual -ArgumentList $args3d -PassThru
-          if (-not $p.WaitForExit(60000)) { $p.Kill(); throw 'Native Windows motion test timed out' }
+          if (-not $p.WaitForExit(60000)) {
+            $p.Kill()
+            if (Test-Path $log) { Get-Content $log }
+            throw 'Native Windows motion test timed out'
+          }
           $result = Get-Content -Raw $log
           Write-Output $result
           if ($p.ExitCode -ne 0 -or $result -notmatch 'PASS: Hello hand wave' -or $result -match 'SCRIPT ERROR|Parse Error|ERROR:') { throw 'Native Windows motion failed' }
@@ -147,6 +155,7 @@ jobs:
             if (-not (Test-Path "$env:ROBOT_REVIEW_DIR/$frame.png")) { throw "Missing rendered $frame frame" }
           }
       - name: Upgrade user settings, launch the 3D host, open Studio and test the shared menu
+        if: ${{ !cancelled() }}
         timeout-minutes: 4
         env:
           GH_TOKEN: ${{ github.token }}

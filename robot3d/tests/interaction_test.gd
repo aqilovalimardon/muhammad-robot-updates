@@ -430,6 +430,7 @@ func motion_checks(r):
         check(window.position.distance_to(start)>85.0 and window.size==r.DESK_SIZE,"real avatar window travels at its original size")
         check(layer!=null and layer.visible and layer.mouse_passthrough and layer.unfocusable,"trail is visible and click-through")
         var wake=layer.get_texture().get_image()
+        wake.convert(Image.FORMAT_RGBA8)
         var pixels=0
         var avatar=Rect2i(window.position,window.size)
         for y in wake.get_height():
@@ -443,6 +444,7 @@ func motion_checks(r):
             picture.fill(Color("263447"))
             picture.blend_rect(wake,Rect2i(Vector2i.ZERO,wake.get_size()),layer.position-both.position)
             var robot_image=window.get_texture().get_image()
+            robot_image.convert(Image.FORMAT_RGBA8)
             picture.blend_rect(robot_image,Rect2i(Vector2i.ZERO,robot_image.get_size()),window.position-both.position)
             picture.save_png(folder+"/flight.png")
     r._handle_host_command("stop")
@@ -476,4 +478,6 @@ func motion_checks(r):
 func _review_frame(r,label:String):
     var folder=OS.get_environment("ROBOT_REVIEW_DIR")
     if not folder.is_empty() and DisplayServer.get_name()!="headless":
-        r.get_viewport().get_texture().get_image().save_png(folder+"/"+label+".png")
+        var frame=r.get_viewport().get_texture().get_image()
+        frame.convert(Image.FORMAT_RGBA8)
+        frame.save_png(folder+"/"+label+".png")
