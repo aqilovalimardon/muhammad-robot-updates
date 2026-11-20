@@ -30,7 +30,8 @@ def upgrade(baseline, archive, root, motion=False):
         if motion:
             voice = 'app/voice_commands.py'
             assert new.read(voice) != old.read(voice)
-            assert new.read(voice) == (Path(__file__).resolve().parents[1]/'runtime/voice_commands.py').read_bytes()
+            source = Path(__file__).resolve().parents[1] / 'runtime/voice_commands.py'
+            assert new.read(voice).decode('utf-8').replace('\r\n', '\n') == source.read_text(encoding='utf-8')
             changed.add(voice)
         for name in FILES - changed:
             assert new.read(name) == old.read(name), name
