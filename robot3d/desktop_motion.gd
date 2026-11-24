@@ -2,12 +2,18 @@ extends RefCounted
 ## Coordinates are desktop pixels, including negative monitor origins.
 const HOP_SECONDS := 0.86
 const WAVE_SECONDS := 1.34
+const FLIGHT_SPEED := 255.0
+const TAKEOFF_TIME := 0.16
 
 var flying := false
 var jumping := false
 var waving := false
 var location := Vector2.ZERO
 var velocity := Vector2.ZERO
+var lean := Vector2.ZERO
+var follow_through := Vector2.ZERO
+var _lean_rate := Vector2.ZERO
+var _follow_rate := Vector2.ZERO
 var jump_height := 0.0
 var crouch := 0.0
 var hand_raise := 0.0
@@ -39,7 +45,7 @@ func fly(origin: Vector2i, limits: Rect2i) -> void:
     var radius := _bounds.size * 0.5
     var center := _bounds.get_center()
     _phase = Vector2(_start_phase(_base.x, center.x, radius.x), _start_phase(_base.y, center.y, radius.y))
-    _angular_speed = minf(1.1, 255.0 / maxf(1.0, maxf(radius.x, 1.45*radius.y)))
+    _angular_speed = minf(1.1, FLIGHT_SPEED / maxf(1.0, maxf(radius.x, 1.45*radius.y)))
     _flight_time = 0.0
     flying = true
 
@@ -65,20 +71,32 @@ func stop() -> void:
     hand_raise = 0.0
     hand_swing = 0.0
 
+func reset_flight_pose() -> void:
+    lean = Vector2.ZERO
+    follow_through = Vector2.ZERO
+    _lean_rate = Vector2.ZERO
+    _follow_rate = Vector2.ZERO
+
 func advance(delta: float) -> void:
-    var dt := minf(delta, 0.10)
+    var dt := clampf(delta, 0.0, 0.10)
     if waving:
         _wave_time += dt
         hand_raise = smoothstep(0.0, 0.24, _wave_time) * (1.0-smoothstep(1.04, WAVE_SECONDS, _wave_time))
         hand_swing = hand_raise * sin((_wave_time-0.24)*TAU*2.5)
         waving = _wave_time < WAVE_SECONDS
-    if not flying and not jumping:
-        return
+    if flying or jumping:
+        _advance_travel(dt)
+    if flying or lean != Vector2.ZERO or follow_through != Vector2.ZERO:
+        _advance_flight_pose(dt)
+
+func _advance_travel(dt: float) -> void:
+    var previous := location
     if flying:
-        _flight_time += dt * _angular_speed
-        var angles := _phase + Vector2(_flight_time, _flight_time*1.45)
+        _flight_time += dt
+        # Ease into the original path from rest. Its speed and extent then match cruising flight.
+        var phase_time := (_flight_time-TAKEOFF_TIME*(1.0-exp(-_flight_time/TAKEOFF_TIME))) * _angular_speed
+        var angles := _phase + Vector2(phase_time, phase_time*1.45)
         _base = _bounds.get_center() + _bounds.size*0.5*Vector2(cos(angles.x), cos(angles.y))
-        velocity = -_bounds.size*0.5*_angular_speed*Vector2(sin(angles.x), 1.45*sin(angles.y))
     if jumping:
         _jump_time += dt
         var u := clampf((_jump_time-0.13)/0.58, 0.0, 1.0)
@@ -91,3 +109,19 @@ func advance(delta: float) -> void:
             crouch = 0.0
     var clearance := clampf(_base.y-_bounds.position.y, 0.0, 104.0)
     location = _base - Vector2(0.0, jump_height*clearance)
+    if flying and dt > 0.0:
+        # Include an in-flight hop in the direction seen by the player.
+        velocity = (location-previous)/dt
+
+func _advance_flight_pose(dt: float) -> void:
+    var target := (velocity / FLIGHT_SPEED).limit_length(1.0)
+    var remaining := dt
+    while remaining > 0.0:
+        var step := minf(remaining, 1.0/120.0)
+        remaining -= step
+        _lean_rate += ((target-lean)*130.0 - _lean_rate*15.0)*step
+        lean += _lean_rate*step
+        _follow_rate += ((lean-follow_through)*60.0 - _follow_rate*8.8)*step
+        follow_through += _follow_rate*step
+    if not flying and lean.length_squared()+follow_through.length_squared()+_lean_rate.length_squared()+_follow_rate.length_squared() < 0.000001:
+        reset_flight_pose()

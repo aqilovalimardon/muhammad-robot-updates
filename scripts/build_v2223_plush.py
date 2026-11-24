@@ -17,7 +17,7 @@ FILES = {APP, CORE, PACK, 'app/voice_commands.py', 'app/windows_speech.py',
 
 
 def build(baseline, resource_pack, output, *, previous='2.2.22', version=VERSION,
-          base_sha=BASE_SHA256, update_voice=False):
+          base_sha=BASE_SHA256, update_voice=False, update_app=True):
     baseline, resource_pack, output = map(Path, (baseline, resource_pack, output))
     if hashlib.sha256(baseline.read_bytes()).hexdigest() != base_sha:
         raise ValueError(f'Expected the official v{previous} package')
@@ -27,8 +27,6 @@ def build(baseline, resource_pack, output, *, previous='2.2.22', version=VERSION
     if not pack.startswith(b'GDPC') or len(pack) < 1000:
         raise ValueError('Invalid Godot resource pack')
     runtime = Path(__file__).resolve().parents[1] / 'runtime'
-    app = (runtime / 'robot_app.py').read_bytes()
-    compile(app, APP, 'exec')
     output.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(baseline) as old:
         retained = [item for item in old.infolist()
@@ -39,8 +37,12 @@ def build(baseline, resource_pack, output, *, previous='2.2.22', version=VERSION
         version_line = f"APP_VERSION = '{previous}'".encode()
         if core.count(version_line) != 1:
             raise ValueError('Unexpected runtime version')
-        replacements = {APP: app, CORE: core.replace(version_line, f"APP_VERSION = '{version}'".encode()),
+        replacements = {CORE: core.replace(version_line, f"APP_VERSION = '{version}'".encode()),
                         PACK: pack}
+        if update_app:
+            app = (runtime / 'robot_app.py').read_bytes()
+            compile(app, APP, 'exec')
+            replacements[APP] = app
         if update_voice:
             voice = (runtime / 'voice_commands.py').read_bytes()
             compile(voice, 'voice_commands.py', 'exec')

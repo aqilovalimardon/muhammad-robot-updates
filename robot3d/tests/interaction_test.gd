@@ -373,6 +373,9 @@ func _coat_checks(r):
 
 func motion_checks(r):
     r.set_process(false)
+    var sound_enabled = r.feedback.enabled
+    r.feedback.enabled = false
+    _flight_pose_checks(r)
     # The model also handles a monitor to the left of the primary display.
     var path = r.DesktopMotion.new()
     var bounds := Rect2i(-1440,50,1264,590)
@@ -422,7 +425,7 @@ func motion_checks(r):
         await r.get_tree().process_frame
     var start=window.position
     r._handle_host_command("fly")
-    for i in 35:r._process(1.0/30.0)
+    for i in 48:r._process(1.0/30.0)
     check(r.motion.flying,"Fly starts continuous motion")
     if native:
         await RenderingServer.frame_post_draw
@@ -432,20 +435,27 @@ func motion_checks(r):
         var wake=layer.get_texture().get_image()
         wake.convert(Image.FORMAT_RGBA8)
         var pixels=0
+        var soft_pixels=0
+        var reach=0.0
         var avatar=Rect2i(window.position,window.size)
         for y in wake.get_height():
             for x in wake.get_width():
-                if wake.get_pixel(x,y).a>0.15 and not avatar.has_point(layer.position+Vector2i(x,y)):pixels+=1
-        check(pixels>12,"the rendered trail is visible behind and beyond the avatar window")
+                var desktop_pixel=layer.position+Vector2i(x,y)
+                if avatar.has_point(desktop_pixel):continue
+                var alpha=wake.get_pixel(x,y).a
+                if alpha>0.15:pixels+=1
+                if alpha>0.035 and alpha<0.19:soft_pixels+=1
+                if alpha>0.08:reach=maxf(reach,desktop_pixel.distance_to(avatar.get_center()))
+        check(pixels>380 and soft_pixels>450 and reach>160.0,"rendered smoke has a long, wide translucent edge beyond the avatar: "+str([pixels,soft_pixels,reach]))
         var folder=OS.get_environment("ROBOT_REVIEW_DIR")
         if not folder.is_empty():
             var both=Rect2i(layer.position,layer.size).merge(avatar)
             var picture=Image.create_empty(both.size.x,both.size.y,false,Image.FORMAT_RGBA8)
             picture.fill(Color("263447"))
-            picture.blend_rect(wake,Rect2i(Vector2i.ZERO,wake.get_size()),layer.position-both.position)
+            _composite_viewport(picture,wake,layer.position-both.position)
             var robot_image=window.get_texture().get_image()
             robot_image.convert(Image.FORMAT_RGBA8)
-            picture.blend_rect(robot_image,Rect2i(Vector2i.ZERO,robot_image.get_size()),window.position-both.position)
+            _composite_viewport(picture,robot_image,window.position-both.position)
             picture.save_png(folder+"/flight.png")
     r._handle_host_command("stop")
     var freeze=window.position
@@ -473,7 +483,77 @@ func motion_checks(r):
     check(r.hidden and not r.motion.flying and not r.motion.jumping and not r.motion.waving,"closed orb ignores movement commands")
     r._show()
     check(not r.hidden and not r.motion.flying,"Open restores the stationary plush")
+    check(r.motion.lean==Vector2.ZERO and r.motion.follow_through==Vector2.ZERO,"the restored plush starts with no flight deformation")
+    if native:
+        await _smoke_checks(r)
+        if not failed:print("PASS: flight lean, elastic response and translucent smoke on the native desktop")
+    r.feedback.enabled = sound_enabled
     if not failed:print("PASS: Hello hand wave, bounded desktop flight, trail, immediate stop, single jump and manual control")
+
+func _flight_pose_checks(r):
+    var path = r.motion
+    var bounds := Rect2i(-1440,50,1264,590)
+    path.fly(bounds.get_center(),bounds)
+    var directions := [false,false,false,false]
+    var longest := 1.0
+    var most_lag := 0.0
+    var valid := true
+    for i in 660:
+        var previous:Vector2 = path.location
+        path.advance(1.0/30.0)
+        var actual:Vector2 = (path.location-previous)*30.0
+        if i==0:check(actual.length()<52.0,"takeoff starts gently")
+        if i==105:path.jump(Vector2i(path.location),bounds)
+        r._advance_soft_body(1.0/30.0)
+        r._apply_motion_pose()
+        var pose:Basis = r.flight_pose.basis
+        valid = valid and actual.distance_to(path.velocity)<0.03 and absf(pose.determinant()-1.0)<0.002
+        most_lag = maxf(most_lag,path.lean.distance_to(path.follow_through))
+        if actual.length()<140.0:continue
+        var heading := Vector3(actual.x,-actual.y,0.0).normalized()
+        longest=maxf(longest,(pose.transposed()*heading).length())
+        if actual.x>160.0 and pose.y.x>0.12:directions[0]=true
+        if actual.x< -160.0 and pose.y.x< -0.12:directions[1]=true
+        if actual.y>125.0 and pose.z.y< -0.075:directions[2]=true
+        if actual.y< -125.0 and pose.z.y>0.075:directions[3]=true
+    check(valid and not directions.has(false),"real pose leans left, right, up and down along screen travel, even during a hop")
+    check(longest>1.11 and most_lag>0.18,"body stretches along travel while feet and antenna catch up")
+    path.stop()
+    var freeze:Vector2 = path.location
+    for i in 48:path.advance(1.0/15.0)
+    check(freeze==path.location and path.lean.length()<0.001 and path.follow_through.length()<0.001,"stopping fixes the window while the elastic pose settles")
+    path.reset_flight_pose()
+
+func _smoke_checks(r):
+    var layer = r.flight_trail
+    var base := Vector2(r._work_area().get_center())-Vector2(120,0)
+    var counts := []
+    for fps in [15,60]:
+        layer.clear_trail()
+        for i in range(fps+1):
+            var point := base+Vector2(216.0*i/fps,0.0)
+            layer.sample(point,base+Vector2(140,0),base+Vector2(140,22),1.0/fps)
+        counts.append(layer.smoke.puffs.size())
+    check(counts[0]==counts[1] and counts[0]>=35,"smoke density follows travel distance across frame rates")
+    await RenderingServer.frame_post_draw
+    var image=layer.get_texture().get_image()
+    var face:=Vector2i(base+Vector2(140,0))-Vector2i(layer.position)
+    check(image.get_pixelv(face).a<0.01 and image.get_pixelv(face+Vector2i(65,0)).a>0.13,"smoke stays behind the face during a crossing")
+    for i in 120:
+        layer.sample(base+Vector2(216,0),base,base,1.0/60.0)
+    check(layer.smoke.puffs.is_empty() and not layer.visible,"stationary exhaust fades fully without piling up")
+    layer.clear_trail()
+
+func _composite_viewport(picture: Image, source: Image, origin: Vector2i):
+    # Viewport textures contain premultiplied color as sent to the desktop compositor.
+    for y in source.get_height():
+        for x in source.get_width():
+            var pixel := source.get_pixel(x,y)
+            if pixel.a==0.0:continue
+            var at := origin+Vector2i(x,y)
+            var color := pixel+picture.get_pixelv(at)*(1.0-pixel.a)
+            color.a=1.0
+            picture.set_pixelv(at,color)
 
 func _review_frame(r,label:String):
     var folder=OS.get_environment("ROBOT_REVIEW_DIR")

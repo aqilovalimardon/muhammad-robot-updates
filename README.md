@@ -1,6 +1,10 @@
 # muhammad-robot-updates
 Automatic updates for Muhammad's desktop robot
 
+## v2.2.25 — softer flight and a smoke trail
+
+**Fly robot** eases into flight. The plush leans into its path, stretches as it gains speed, and rebounds as it turns. Its feet and antenna follow a little later. A longer trail of pale blue-gray smoke drifts upward and fades behind it. **Stop robot** stops the desktop window on the spot and clears the smoke as the plush settles.
+
 ## v2.2.24 — English voice gestures
 
 | Say | What the robot does |

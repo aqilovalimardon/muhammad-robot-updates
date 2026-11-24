@@ -37,6 +37,7 @@ var spring_head=0.0
 var left_hand:MeshInstance3D
 var right_hand:MeshInstance3D
 var raised_sleeve:MeshInstance3D
+var flight_pose := Node3D.new()
 var motion := DesktopMotion.new()
 var flight_trail: FlightTrail
 var feedback
@@ -250,7 +251,9 @@ func _character():
     var dark=_mat(Color(0.012,0.046,0.22),0.13)
     robot=Node3D.new()
     robot.name="MuhammadReal3D"
-    add_child(robot)
+    flight_pose.name="FlightPose"
+    add_child(flight_pose)
+    flight_pose.add_child(robot)
     var torso = _sphere(robot,"RoundedBody",Vector3(0,-0.32,0.02),Vector3(0.59,0.61,0.45),cream)
     pet_surfaces.append(torso)
     left_hand=_sphere(robot,"LeftHand",Vector3(-0.63,-0.24,0),Vector3(0.21,0.32,0.22),soft)
@@ -515,6 +518,7 @@ func _action(command:String):
 func _hide():
     if hidden:return
     _stop_motion()
+    motion.reset_flight_pose()
     _cancel_hold()
     feedback.play_cue("close")
     hidden=true
@@ -602,26 +606,52 @@ func _stop_motion():
 func _advance_motion(delta: float):
     var moving := motion.flying or motion.jumping
     motion.advance(delta)
-    if not moving:
+    if moving:
+        get_window().position = Vector2i(motion.location.round())
+
+func _update_smoke(delta: float, camera: Camera3D):
+    if not motion.flying or DisplayServer.get_name() == "headless":
         return
-    get_window().position = Vector2i(motion.location.round())
-    if motion.flying and DisplayServer.get_name() != "headless":
-        if flight_trail == null:
-            flight_trail = FlightTrail.new()
-            add_child(flight_trail)
-        var direction := motion.velocity.normalized()
-        var exhaust := Vector2(get_window().position)+Vector2(88.0,110.0)-direction*47.0
-        flight_trail.sample(exhaust,delta)
+    if flight_trail == null:
+        flight_trail = FlightTrail.new()
+        add_child(flight_trail)
+    var origin := Vector2(get_window().position)
+    var face := origin + camera.unproject_position(head.to_global(Vector3(0.0, -0.03, 0.46)))
+    var chest := origin + camera.unproject_position(robot.to_global(Vector3(0.0, -0.29, 0.14)))
+    var heading := (motion.velocity / 110.0).limit_length(1.0)
+    flight_trail.sample(face.lerp(chest, 0.58)-heading*54.0, face, chest, delta)
+
+func _apply_flight_pose():
+    var lean := motion.lean.limit_length(1.0)
+    var follow := motion.follow_through.limit_length(1.0)
+    var pull := follow.length()
+    var stretch := Basis.IDENTITY
+    if pull > 0.001:
+        # Stretch along the screen path, including diagonals, and preserve the plush's volume.
+        var axis := Vector3(follow.x, -follow.y, 0.0).normalized()
+        var axes := Basis(axis, Vector3(-axis.y, axis.x, 0.0), Vector3.BACK)
+        var along := 1.0 + pull*(0.15 + 0.035*sin(t*TAU*1.28))
+        var across := 1.0/sqrt(along)
+        stretch = axes * Basis.from_scale(Vector3(along, across, across)) * axes.transposed()
+    flight_pose.basis = stretch * Basis.from_euler(Vector3(0.23*lean.y, 0.24*lean.x, -0.32*lean.x))
+
+    var lag := (lean-follow).limit_length(1.0)
+    var head_shift := Vector3(-0.11*lag.x, 0.11*lag.y, 0.0)
+    head.position += head_shift
+    head.rotation.z += 0.14*lag.x
+    antenna.position = Vector3(0.04, 0.99, 0.0) + head_shift
+    antenna.rotation.z += 0.35*follow.x + 0.22*lag.x
+    antenna.rotation.x += 0.19*follow.y
+    var trailing := Vector3(-follow.x, follow.y, 0.0)
+    left_hand.position += trailing*0.095 + Vector3.LEFT*0.045*pull
+    right_hand.position += trailing*0.095 + Vector3.RIGHT*0.045*pull
+    left_hand.rotation.z -= 0.37*pull
+    right_hand.rotation.z += 0.37*pull
+    left_foot.position += trailing*0.13
+    right_foot.position += trailing*0.13
 
 func _apply_motion_pose():
-    if motion.flying:
-        var bank := clampf(motion.velocity.x/255.0,-1.0,1.0)
-        robot.rotation.z -= 0.13*bank
-        left_hand.rotation.z -= 0.38
-        right_hand.rotation.z += 0.38
-        left_hand.position.x -= 0.045
-        right_hand.position.x += 0.045
-        antenna.rotation.z += 0.20*bank
+    _apply_flight_pose()
     if motion.jumping:
         robot.scale *= Vector3(1.0+0.065*motion.crouch,1.0-0.14*motion.crouch,1.0+0.065*motion.crouch)
         robot.position.y += 0.10*motion.jump_height-0.08*motion.crouch
@@ -658,6 +688,7 @@ func _process(delta:float):
     _apply_motion_pose()
     antenna_glow.update_glow(t,emotion,delta)
     var camera=get_viewport().get_camera_3d()
+    _update_smoke(delta,camera)
     belly.position=camera.unproject_position(robot.to_global(Vector3(0,-0.37,0.57)))-belly.size*0.5
     var cursor=DisplayServer.mouse_get_position()-get_window().position
     var offset=Vector2(cursor.x-88.0,cursor.y-100.0)
@@ -666,6 +697,9 @@ func _process(delta:float):
     offset.y=clampf(offset.y,-100,100)
     var sx=offset.x/100.0
     var sy=offset.y/100.0
+    var heading := motion.lean.limit_length(1.0)
+    sx = lerpf(sx,heading.x,heading.length())
+    sy = lerpf(sy,heading.y,heading.length())
     for i in range(pupils.size()):
         var initial=-0.22 if i==0 else 0.22
         var desired=Vector3(initial+sx*0.055,-0.01-sy*0.043-sad_weight*0.055,0.63)
@@ -723,8 +757,8 @@ func _advance_soft_body(delta:float):
     var lift=laugh_weight*(0.10+0.07*jiggle)
     left_hand.position=Vector3(-0.63+tuck,-0.24+head_lag.y*0.8+lift-tuck*0.55,tuck*0.9)
     right_hand.position=Vector3(0.63-tuck,-0.24-head_lag.y*0.8+lift-tuck*0.55,tuck*0.9)
-    left_foot.position.y=-0.80+laugh_weight*0.045*jiggle+tuck*0.35
-    right_foot.position.y=-0.80-laugh_weight*0.045*jiggle+tuck*0.35
+    left_foot.position=Vector3(-0.30,-0.80+laugh_weight*0.045*jiggle+tuck*0.35,0.18)
+    right_foot.position=Vector3(0.30,-0.80-laugh_weight*0.045*jiggle+tuck*0.35,0.18)
     left_foot.rotation.y=-sad_weight*0.28
     right_foot.rotation.y=sad_weight*0.28
     left_foot.rotation.z=-squish*0.6-soft_offset.x
