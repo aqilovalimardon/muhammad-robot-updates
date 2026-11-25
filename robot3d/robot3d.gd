@@ -627,7 +627,7 @@ func _update_flight_trail(delta: float, camera: Camera3D):
     var face := origin + camera.unproject_position(head.to_global(Vector3(0.0, -0.03, 0.46)))
     var chest := origin + camera.unproject_position(robot.to_global(Vector3(0.0, -0.29, 0.14)))
     var heading := (motion.velocity / 110.0).limit_length(1.0)
-    flight_trail.advance(delta, motion.flying, face.lerp(chest, 0.58)-heading*54.0, face, chest)
+    flight_trail.advance(delta, motion.flying, face.lerp(chest, 0.58)-heading*54.0, face, chest, heading)
 
 func _apply_flight_pose():
     var lean := motion.lean.limit_length(1.0)

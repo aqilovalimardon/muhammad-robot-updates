@@ -22,16 +22,16 @@ from test_v2222_popup import popup_checks, pump
 
 def upgrade(baseline, archive, root, motion=False):
     previous = baseline.stem.removeprefix('MuhammadRobot-')
-    versions = {'2.2.23': '2.2.24', '2.2.24': '2.2.25', '2.2.25': '2.2.26'} if motion else {'2.2.22': VERSION}
+    versions = {'2.2.23': '2.2.24', '2.2.24': '2.2.25', '2.2.25': '2.2.26', '2.2.26': '2.2.27'} if motion else {'2.2.22': VERSION}
     version = versions[previous]
     manifest = json.loads((archive.parent / 'manifest.json').read_text())
     assert manifest['version'] == version and manifest['zip'] == archive.name
     with zipfile.ZipFile(baseline) as old, zipfile.ZipFile(archive) as new:
         assert new.testzip() is None and set(new.namelist()) == FILES
         changed = {CORE, PACK}
-        if version in ('2.2.23', '2.2.24'):
+        if version in ('2.2.23', '2.2.24', '2.2.27'):
             changed.add(APP)
-        if version == '2.2.24':
+        if version in ('2.2.24', '2.2.27'):
             voice = 'app/voice_commands.py'
             assert new.read(voice) != old.read(voice)
             source = Path(__file__).resolve().parents[1] / 'runtime/voice_commands.py'
@@ -187,8 +187,9 @@ def check_motion_voice(commands, source, folder):
     assert gate.accept('stop robot',True,1.45) is None
     for c in ('fly','jump'):
         assert gate.accept(c+' robot',False,2.0) is None
-        assert gate.accept(c+' robot',False,2.3) is None
-        assert gate.accept(c+' robot',True,2.5) == c
+        early = hasattr(gate, 'accept_all')
+        assert gate.accept(c+' robot',False,2.3) == (c if early else None)
+        assert gate.accept(c+' robot',True,2.5) == (None if early else c)
     h = make_host(source, folder)
     h._three_d_signal.unlink(missing_ok=True)
     h._enable_existing_mic()

@@ -568,6 +568,27 @@ func _ribbon_checks(r):
     var image=layer.get_texture().get_image()
     var face:=Vector2i(base+Vector2(140,0))-Vector2i(layer.position)
     check(image.get_pixelv(face).a<0.01 and image.get_pixelv(face+Vector2i(65,0)).a>0.13,"ribbons stay behind the face during a crossing")
+    # Measure actual opacity across the wake, in desktop pixels, off the avatar.
+    var width := 0
+    var streamers := 0
+    for offset in [74, 86, 192]:
+        var column := Vector2i(base+Vector2(offset,0))-Vector2i(layer.position)
+        var lo := 80
+        var hi := -80
+        var bands := 0
+        var inside := false
+        for y in range(-74,75):
+            var alpha: float = image.get_pixelv(column+Vector2i(0,y)).a
+            if alpha > 0.16:
+                lo = mini(lo,y)
+                hi = maxi(hi,y)
+            if alpha > 0.46 and not inside:
+                bands += 1
+            inside = alpha > 0.46
+        width = maxi(width,hi-lo+1)
+        streamers = maxi(streamers,bands)
+    check(width>=72 and streamers>=4,"flight fans across the robot's back with separate bright streamers: "+str([width,streamers]))
+    if not failed:print("PASS: rendered flight fan spans ",width," desktop pixels with ",streamers," bright streamers")
     var probe := base+Vector2(195,0)
     var brightness := []
     for frames in [24,36,57]:
@@ -576,7 +597,7 @@ func _ribbon_checks(r):
         image=layer.get_texture().get_image()
         var local := Vector2i(probe)-Vector2i(layer.position)
         var energy := 0.0
-        for y in range(-20,21):energy+=image.get_pixelv(local+Vector2i(0,y)).a
+        for y in range(-72,73):energy+=image.get_pixelv(local+Vector2i(0,y)).a
         brightness.append(energy)
     check(brightness[0]>brightness[1] and brightness[1]>brightness[2] and brightness[2]>0.01,"a fixed patch of afterglow dims gradually for nearly two seconds")
     for i in 45:layer.advance(1.0/60.0,false,base,base,base)
@@ -589,7 +610,7 @@ func _ribbon_checks(r):
     image=layer.get_texture().get_image()
     var gap:=Vector2i(base+Vector2(140,0))-Vector2i(layer.position)
     var empty_gap:=true
-    for y in range(-18,19):
+    for y in range(-72,73):
         if image.get_pixelv(gap+Vector2i(0,y)).a>0.02:empty_gap=false
     check(empty_gap,"restarting flight leaves separate strokes without a line across the gap")
     layer.clear_trail()

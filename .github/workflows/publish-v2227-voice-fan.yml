@@ -1,24 +1,25 @@
-name: Validate and publish v2.2.26 greeting and light ribbons
+name: Validate and publish v2.2.27 offline commands and wide flight trails
 on:
   push:
-    branches: [main, feature/wave-ribbons]
+    branches: [main, feature/voice-flight-fan]
     paths:
       - 'robot3d/**'
       - 'runtime/robot_app.py'
       - 'runtime/voice_commands.py'
-      - 'scripts/build_v2226_ribbons.py'
+      - 'scripts/build_v2227_voice_fan.py'
       - 'scripts/build_v2223_plush.py'
       - 'scripts/test_v2223_plush.py'
       - 'scripts/test_v2222_popup.py'
       - 'scripts/test_v2221_voice.py'
       - 'scripts/test_v2221_windows_voice.py'
+      - 'scripts/test_v2227_commands.py'
       - 'scripts/make_voice_fixtures.ps1'
-      - '.github/workflows/publish-v2226-ribbons.yml'
+      - '.github/workflows/publish-v2227-voice-fan.yml'
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: motion-v2226-${{ github.ref }}
+  group: motion-v2227-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   build:
@@ -68,6 +69,7 @@ jobs:
           test -s review/hello_in.png
           test -s review/hello_out.png
           grep -q 'PASS: articulated wave, layered light ribbons and lingering afterglow' /tmp/motion.log
+          grep -q 'PASS: rendered flight fan spans' /tmp/motion.log
           test -s review/flight.png
           test -s review/jump.png
       - name: Build exact versioned ZIP and verify existing host behavior
@@ -76,19 +78,19 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p baseline
-          gh release download v2.2.25 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.25.zip' --dir baseline
-          python3 scripts/build_v2226_ribbons.py baseline/MuhammadRobot-2.2.25.zip dist/MuhammadRobot3D.pck dist/MuhammadRobot-2.2.26.zip
-          xvfb-run -a /usr/bin/python3 scripts/test_v2223_plush.py baseline/MuhammadRobot-2.2.25.zip dist/MuhammadRobot-2.2.26.zip --motion --ui --godot /tmp/Godot_v4.7.2-stable_linux.x86_64
+          gh release download v2.2.26 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.26.zip' --dir baseline
+          python3 scripts/build_v2227_voice_fan.py baseline/MuhammadRobot-2.2.26.zip dist/MuhammadRobot3D.pck dist/MuhammadRobot-2.2.27.zip
+          xvfb-run -a /usr/bin/python3 scripts/test_v2223_plush.py baseline/MuhammadRobot-2.2.26.zip dist/MuhammadRobot-2.2.27.zip --motion --ui --godot /tmp/Godot_v4.7.2-stable_linux.x86_64
       - uses: actions/upload-artifact@v4
         with:
-          name: robot-v2226-package
+          name: robot-v2227-package
           path: |
-            dist/MuhammadRobot-2.2.26.zip
+            dist/MuhammadRobot-2.2.27.zip
             dist/manifest.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: robot-v2226-review
+          name: robot-v2227-review
           path: |
             review/
             /tmp/import.log
@@ -108,13 +110,13 @@ jobs:
           python-version: '3.11'
       - uses: actions/download-artifact@v4
         with:
-          name: robot-v2226-package
+          name: robot-v2227-package
           path: package
       - name: Run exported Windows EXE with actual packaged interaction tests
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          Expand-Archive -LiteralPath 'package/MuhammadRobot-2.2.26.zip' -DestinationPath 'installed'
+          Expand-Archive -LiteralPath 'package/MuhammadRobot-2.2.27.zip' -DestinationPath 'installed'
           $exe=(Resolve-Path 'installed/app/visual3d/MuhammadRobot3D.exe').Path
           $log=Join-Path $PWD 'windows-interaction.log'
           $p=Start-Process -FilePath $exe -ArgumentList '--headless','--log-file',"`"$log`"",'--','--interaction-test' -PassThru -NoNewWindow
@@ -142,7 +144,7 @@ jobs:
           }
           $result = Get-Content -Raw $log
           Write-Output $result
-          if ($p.ExitCode -ne 0 -or $result -notmatch 'PASS: Hello hand wave' -or $result -notmatch 'PASS: articulated wave, layered light ribbons and lingering afterglow' -or $result -match 'SCRIPT ERROR|Parse Error|ERROR:') { throw 'Native Windows motion failed' }
+          if ($p.ExitCode -ne 0 -or $result -notmatch 'PASS: Hello hand wave' -or $result -notmatch 'PASS: articulated wave, layered light ribbons and lingering afterglow' -or $result -notmatch 'PASS: rendered flight fan spans' -or $result -match 'SCRIPT ERROR|Parse Error|ERROR:') { throw 'Native Windows motion failed' }
           foreach ($frame in 'hello','hello_in','hello_out','flight','jump') {
             if (-not (Test-Path "$env:ROBOT_REVIEW_DIR/$frame.png")) { throw "Missing rendered $frame frame" }
           }
@@ -155,16 +157,16 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           New-Item -ItemType Directory -Force baseline | Out-Null
-          gh release download v2.2.25 --repo "$env:GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.25.zip' --dir baseline
+          gh release download v2.2.26 --repo "$env:GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.26.zip' --dir baseline
           if ($LASTEXITCODE -ne 0) { throw 'Baseline download failed' }
           python -m pip install --disable-pip-version-check pillow
           if ($LASTEXITCODE -ne 0) { throw 'Screenshot dependency failed' }
-          python scripts/test_v2223_plush.py baseline/MuhammadRobot-2.2.25.zip package/MuhammadRobot-2.2.26.zip --motion --ui
+          python scripts/test_v2223_plush.py baseline/MuhammadRobot-2.2.26.zip package/MuhammadRobot-2.2.27.zip --motion --ui
           if ($LASTEXITCODE -ne 0) { throw 'Native context menu check failed' }
       - name: Generate actual offline Windows voice samples
         if: ${{ !cancelled() }}
         shell: powershell
-        run: ./scripts/make_voice_fixtures.ps1
+        run: ./scripts/make_voice_fixtures.ps1 -VariedInput
       - name: Recognize real audio and drive the shipped 3D robot
         if: ${{ !cancelled() }}
         timeout-minutes: 7
@@ -173,12 +175,12 @@ jobs:
           $ErrorActionPreference='Stop'
           python -m pip install --disable-pip-version-check vosk==0.3.45
           if ($LASTEXITCODE -ne 0) { throw 'Test recognizer install failed' }
-          python scripts/test_v2221_windows_voice.py package/MuhammadRobot-2.2.26.zip voice-fixtures --menu-open --motion
+          python scripts/test_v2221_windows_voice.py package/MuhammadRobot-2.2.27.zip voice-fixtures --menu-open --motion --varied-input
           if ($LASTEXITCODE -ne 0) { throw 'Actual voice integration failed' }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: robot-v2226-windows-log
+          name: robot-v2227-windows-log
           path: |
             windows-interaction.log
             windows-native-motion.log
@@ -197,17 +199,17 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: robot-v2226-package
+          name: robot-v2227-package
           path: package
       - name: Publish immutable update after Linux and Windows checks
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if gh release view v2.2.26 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          if gh release view v2.2.27 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo 'Existing release retained'; exit 0
           fi
-          gh release create v2.2.26 package/MuhammadRobot-2.2.26.zip package/manifest.json \
+          gh release create v2.2.27 package/MuhammadRobot-2.2.27.zip package/manifest.json \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest \
-            --title 'Muhammad Robot v2.2.26 - A natural hello and a luminous flight trail' \
-            --notes 'Hello robot now raises a softly bent arm and waves twice beside the cheek. Fly robot leaves tapered jade and blue ribbons with a fine gold thread. Stop robot holds the avatar immediately while the existing light trail fades for up to 2.4 seconds. Closing the avatar clears the trail.'
+            --title 'Muhammad Robot v2.2.27 - Faster offline commands and a wide flight trail' \
+            --notes 'Fly robot and Flay robot start flight. The offline listener accepts fully spoken commands earlier, handles commands together and boosts quiet input. The voice status window shows microphone input level. Eight tapered streams of turquoise, blue and gold fan out behind the robot and fade after Stop.'

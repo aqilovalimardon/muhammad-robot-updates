@@ -6,6 +6,7 @@ Vosk and sounddevice are user-installed in a separate local Voice directory.
 from __future__ import annotations
 import hashlib
 import json
+import math
 import os
 import queue
 import shutil
@@ -15,6 +16,7 @@ import threading
 import time
 import urllib.request
 import zipfile
+from array import array
 from pathlib import Path
 
 MODEL_URL = 'https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip'
@@ -99,59 +101,136 @@ def setup(root:Path, inform=lambda text:None) -> None:
     inform('Offline speech recognition is ready!')
 
 
-def normalize_command(text:str) -> str | None:
-    """Small grammar: only explicit voice commands are accepted."""
-    cleaned=' '.join(''.join(c if c.isalnum() or c.isspace() else ' ' for c in text.lower()).split())
-    if cleaned in {'close robot','close the robot','hide robot','hide the robot','robot close','hey robot close','please close robot'}:return 'close'
-    if cleaned in {'open robot','open the robot','show robot','show the robot','robot open','hey robot open','please open robot'}:return 'open'
-    if cleaned in {'hello robot','helo robot','hallo robot','hey robot','hi robot','hello robo','hello the robot'}:return 'hello'
-    if cleaned in MOTION_COMMANDS:return MOTION_COMMANDS[cleaned]
-    return None
+# Vosk builds a small word graph from these phrases. Only complete, addressed
+# commands from the same table are eligible for dispatch.
+VERBS = {
+    'fly': ('fly', 'flay'), 'stop': ('stop',), 'jump': ('jump',),
+    'open': ('open', 'show'), 'close': ('close', 'hide'), 'hello': ('hello', 'hi'),
+}
+PHRASES = {'hey robot': 'hello'}
+for action, words in VERBS.items():
+    for verb in words:
+        for phrase in (f'{verb} robot', f'{verb} robo', f'{verb} the robot',
+                       f'please {verb} robot', f'robot {verb}', f'hey robot {verb}', f'hey robot {verb} robot'):
+            PHRASES[phrase] = action
+# Give the constrained decoder a way to transcribe common competing sounds.
+# These phrases and unknown speech never dispatch commands.
+COMPETING_SPEECH = ['jump rope', 'stop the music', 'open the door', 'close the door',
+                    'draw a robot', 'a robot', 'a butterfly', 'do not', "don't", 'never', 'no', '[unk]']
+GRAMMAR = json.dumps([*PHRASES, *COMPETING_SPEECH])
+MAX_PHRASE_WORDS = max(len(phrase.split()) for phrase in PHRASES)
+SPLIT_VERBS = {word for words in VERBS.values() for word in words}
 
 
-MOTION_COMMANDS = {'fly robot': 'fly', 'stop robot': 'stop', 'jump robot': 'jump'}
-GRAMMAR = json.dumps(['open robot','close robot','hello robot','open the robot',
-    'close the robot','hide robot','hide the robot','robot close','show robot',
-    'show the robot','robot open','hey robot open','hey robot close',
-    'please open robot','please close robot','hello the robot','hey robot','hi robot',*MOTION_COMMANDS,'[unk]'])
+def _clean(text):
+    words = ''.join(c if c.isalnum() or c.isspace() else ' ' for c in text.lower()).split()
+    return ' '.join('hello' if word in ('helo', 'hallo') else word for word in words)
+
+
+def normalize_command(text: str) -> str | None:
+    return PHRASES.get(_clean(text))
+
+
+def _addressed_commands(phrase):
+    """Parse the entire utterance, including back-to-back commands with no pause."""
+    words = phrase.split()
+    actions = []
+    index = 0
+    while index < len(words):
+        for length in range(min(MAX_PHRASE_WORDS, len(words)-index), 1, -1):
+            action = PHRASES.get(' '.join(words[index:index+length]))
+            if action:
+                actions.append(action)
+                index += length
+                break
+        else:
+            return ()
+    return tuple(actions)
 
 
 class CommandGate:
-    """Act early on stable Open, Close and Stop. Fire each utterance once."""
+    """Dispatch stable whole phrases early, once for each occurrence."""
     def __init__(self):
-        self.partial=None
-        self.since=0.0
-        self.sent=None
+        self.partial = ()
+        self.since = 0.0
+        self.sent = ()
+        self.prefix = ''
+        self.prefix_until = 0.0
+
+    def accept_all(self, text, final, now):
+        phrase = _clean(text)
+        if now > self.prefix_until:
+            self.prefix = ''
+        if self.prefix and phrase in ('robot', 'robo', 'the robot'):
+            phrase = self.prefix + ' ' + phrase
+        elif phrase and phrase != 'the':
+            self.prefix = ''
+        actions = _addressed_commands(phrase)
+        pending = ()
+        if actions and actions[:len(self.sent)] == self.sent:
+            pending = actions[len(self.sent):]
+        if final:
+            if not self.sent and phrase in SPLIT_VERBS:
+                # A deliberate pause can make Vosk end the utterance between the words.
+                self.prefix = phrase
+                self.prefix_until = now + 1.45
+            elif phrase:
+                self.prefix = ''
+            self.partial = self.sent = ()
+            return pending
+        if actions != self.partial:
+            self.partial = actions
+            self.since = now
+        elif pending and not phrase.endswith('hey robot'):
+            delay = 0.12 if pending[-1] in ('open', 'close', 'stop') else 0.22
+            if now-self.since >= delay:
+                self.sent = actions
+                return pending
+        return ()
 
     def accept(self, text, final, now):
-        command=normalize_command(text)
-        if final:
-            result=command if command != self.sent else None
-            self.partial=self.sent=None
-            self.since=0.0
-            return result
-        if command not in ('open','close','stop'):
-            self.partial=None
-            return None
-        if command != self.partial:
-            self.partial=command
-            self.since=now
-        elif now-self.since>=0.18 and self.sent!=command:
-            self.sent=command
-            return command
-        return None
+        """Single-command interface retained for existing callers."""
+        return next(iter(self.accept_all(text, final, now)), None)
 
 
 def recognize_audio(rec, gate, data, events, now):
     """Same recognition/dispatch path for the microphone and recorded-audio tests."""
-    final=bool(rec.AcceptWaveform(data))
-    result=json.loads(rec.Result() if final else rec.PartialResult())
-    heard=result.get('text' if final else 'partial','')
-    if final and heard:events.put(('mic_heard',heard))
-    command=gate.accept(heard,final,now)
-    if command:
-        if not final:events.put(('mic_heard',heard))
-        events.put(('command',command))
+    final = bool(rec.AcceptWaveform(data))
+    result = json.loads(rec.Result() if final else rec.PartialResult())
+    heard = result.get('text' if final else 'partial', '')
+    actions = gate.accept_all(heard, final, now)
+    if heard and (final or actions):
+        events.put(('mic_heard', heard))
+    for action in actions:
+        events.put(('command', action))
+
+
+class SpeechLeveler:
+    """Apply bounded gain to quiet 16 kHz mono speech without cutting initial consonants."""
+    def __init__(self):
+        self.gain = 1.0
+        self.peak = 0
+
+    def process(self, data):
+        if not data:
+            return data
+        samples = array('h')
+        samples.frombytes(data)
+        peak = max(abs(min(samples)), max(samples))
+        self.peak = max(self.peak, peak)
+        if peak < 40:
+            return data
+        wanted = min(8.0, max(1.0, 8000.0/peak))
+        # Reduce gain immediately for louder sounds; ease it up across real speech.
+        amount = 1.0-math.exp(-len(samples)/1600.0)
+        self.gain = min(wanted, self.gain+(wanted-self.gain)*amount)
+        if self.gain <= 1.01:
+            return data
+        return array('h', (round(s*self.gain) for s in samples)).tobytes()
+
+    def take_level(self):
+        peak, self.peak = self.peak, 0
+        return round(20*math.log10(peak/32768)) if peak else -96
 
 
 class PCMResampler:
@@ -201,7 +280,7 @@ def microphone_candidates(sd):
         low=name.lower()
         virtual=('stereo mix' in low or 'wave out' in low or 'loopback' in low)
         rate=round(float(dev.get('default_samplerate') or 0))
-        if rate<16000 or rate>192000:continue
+        if rate<8000 or rate>192000:continue
         options.append((virtual, not default, priority, n, rate, name, api_name))
     options.sort()
     return options
@@ -241,6 +320,9 @@ class OfflineListener:
                 resampler=PCMResampler(rate)
                 rec=vosk.KaldiRecognizer(model,16000,GRAMMAR)
                 gate=CommandGate()
+                leveler=SpeechLeveler()
+                reset_needed=True
+                last_level=0.0
                 last_audio=time.monotonic()
                 def callback(indata,frames,time_data,status):
                     # Mark self-speech at CAPTURE time, so queued audio cannot echo later.
@@ -269,13 +351,21 @@ class OfflineListener:
                                     raise RuntimeError('Microphone stopped delivering audio; reconnecting')
                                 continue
                             last_audio=time.monotonic()
-                            if own_voice or (self.speaking and self.speaking.is_set()) or last_audio-captured>1.0:
-                                rec.Reset()
-                                gate=CommandGate()
-                                resampler=PCMResampler(rate)
+                            if own_voice or last_audio-captured>1.0:
+                                if reset_needed:
+                                    rec.Reset()
+                                    gate=CommandGate()
+                                    resampler=PCMResampler(rate)
+                                    leveler=SpeechLeveler()
+                                    reset_needed=False
                                 continue
-                            data=resampler.convert(data)
-                            recognize_audio(rec,gate,data,self.events,last_audio)
+                            reset_needed=True
+                            data=leveler.process(resampler.convert(data))
+                            if captured-last_level >= 0.25:
+                                self.events.put(('mic_level',leveler.take_level()))
+                                last_level=captured
+                            if data:
+                                recognize_audio(rec,gate,data,self.events,captured)
                     return  # successful stream, or user turned microphone off
                 except (sd.PortAudioError,ValueError,RuntimeError,OSError) as e:
                     # Failure can be per-device/per-backend, so try other Windows

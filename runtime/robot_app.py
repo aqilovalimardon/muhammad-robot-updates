@@ -329,6 +329,7 @@ class RobotApp:
         self.mic_last_heard='No speech recognized yet'
         self.mic_last_command='No command recognized yet'
         self.mic_device='Not connected'
+        self.mic_level=None
         self.mic_state='OFF'
         self.mic_debug_window=None
         self._mic_requested=False
@@ -559,7 +560,7 @@ class RobotApp:
         win=tk.Toplevel(self.root)
         self.mic_debug_window=win
         win.title('Muhammad Robot — Voice status')
-        win.geometry('590x360')
+        win.geometry('590x380')
         win.configure(bg=BG)
         tk.Label(win,text='VOICE COMMAND STATUS',font=('Segoe UI',16,'bold'),bg=BG,fg=PRIMARY).pack(pady=(18,8))
         self.mic_debug_text=tk.StringVar()
@@ -577,11 +578,17 @@ class RobotApp:
     def _refresh_mic_status(self):
         if not self.mic_debug_window or not self.mic_debug_window.winfo_exists():return
         alive=bool(self.listener and self.listener.thread and self.listener.thread.is_alive())
+        level='Waiting for input'
+        if not self.mic_active:
+            level='Off'
+        elif self.mic_level is not None:
+            level='Silence' if self.mic_level <= -80 else f'{self.mic_level} dBFS (before gain)'
         self.mic_debug_text.set(
             f'Microphone setting: {"ON" if self.store.settings.get("microphone_enabled") else "OFF"}\n'
             f'Listening process: {"ACTIVE" if alive else "NOT RUNNING"}\n'
             f'Listening status: {self.mic_state}\n'
             f'Input device: {self.mic_device}\n'
+            f'Input level: {level}\n'
             f'Last speech heard: {self.mic_last_heard}\n'
             f'Last command: {self.mic_last_command}\n'
             f'Robot speaking now: {"YES" if self.voice.speaking.is_set() else "NO"}\n\n'
@@ -649,6 +656,7 @@ class RobotApp:
         self._mic_retry_at=0.0
         self._mic_generation+=1
         generation=self._mic_generation
+        self.mic_level=None
         events=self.mic_events
         class SessionQueue:
             def put(self,item):events.put(('mic_session',(generation,item)))
@@ -677,6 +685,7 @@ class RobotApp:
                         self._signal_real3d(value)
                 elif event=='mic_heard':self.mic_last_heard=str(value)[:100] or '(silence)'
                 elif event=='mic_device':self.mic_device=str(value)[:150]
+                elif event=='mic_level':self.mic_level=value
                 elif event=='mic_error':self._mic_failed(value)
                 elif event=='mic_ended':
                     if self.mic_active and self._mic_requested:self._mic_failed(value)

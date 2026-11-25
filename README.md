@@ -1,6 +1,12 @@
 # muhammad-robot-updates
 Automatic updates for Muhammad's desktop robot
 
+## v2.2.27 — faster offline commands and a wider flight trail
+
+Say **Fly robot**, **Flay robot** or **Robot fly** to take off. Fully recognized phrases respond before the final silence. You can follow one command with another in the same breath. Quiet speech receives a bounded gain boost. **Voice status / restart microphone** displays the input level from the selected device.
+
+Eight tapered jade, blue and gold streams spread across the robot’s back, bend through turns and fade over 2.4 seconds after **Stop robot**.
+
 ## v2.2.26 — a natural greeting and a luminous flight trail
 
 **Hello robot** lifts the mitten beside the cheek and waves twice from a bent elbow. **Fly robot** traces a tapered jade ribbon with fine blue and gold threads. **Stop robot** holds the robot in place while the last ribbons slowly fade over 2.4 seconds. **Close robot** clears them when it folds into the cream orb.

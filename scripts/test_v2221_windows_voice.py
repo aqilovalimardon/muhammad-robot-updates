@@ -69,7 +69,7 @@ def check_native_speech(native):
     finally:release(stream)
 
 
-def main(archive, fixtures, with_menu=False, motion=False):
+def main(archive, fixtures, with_menu=False, motion=False, varied_input=False):
     archive,fixtures=Path(archive).resolve(),Path(fixtures).resolve()
     commands=load_commands(archive)
     import vosk
@@ -84,6 +84,9 @@ def main(archive, fixtures, with_menu=False, motion=False):
                 assert name.startswith(commands.MODEL_FOLDER+'/') and '..' not in Path(name).parts
             z.extractall(folder)
         model=vosk.Model(str(folder/commands.MODEL_FOLDER))
+        if varied_input:
+            from test_v2227_commands import check_recordings
+            check_recordings(commands, model, fixtures)
         with zipfile.ZipFile(archive) as z:
             z.extractall(folder/'installed')
             source=z.read('app/robot_app.py').decode('utf-8')
@@ -162,5 +165,6 @@ if __name__=='__main__':
     parser.add_argument('fixtures')
     parser.add_argument('--menu-open',action='store_true')
     parser.add_argument('--motion',action='store_true')
+    parser.add_argument('--varied-input',action='store_true')
     options=parser.parse_args()
-    main(options.archive,options.fixtures,options.menu_open,options.motion)
+    main(options.archive,options.fixtures,options.menu_open,options.motion,options.varied_input)
