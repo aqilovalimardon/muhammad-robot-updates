@@ -1,7 +1,7 @@
 extends RefCounted
 ## Coordinates are desktop pixels, including negative monitor origins.
 const HOP_SECONDS := 0.86
-const WAVE_SECONDS := 1.34
+const WAVE_SECONDS := 1.74
 const FLIGHT_SPEED := 255.0
 const TAKEOFF_TIME := 0.16
 
@@ -58,6 +58,8 @@ func jump(origin: Vector2i, limits: Rect2i) -> void:
     jumping = true
 
 func wave() -> void:
+    if waving:
+        return
     _wave_time = 0.0
     waving = true
 
@@ -81,8 +83,10 @@ func advance(delta: float) -> void:
     var dt := clampf(delta, 0.0, 0.10)
     if waving:
         _wave_time += dt
-        hand_raise = smoothstep(0.0, 0.24, _wave_time) * (1.0-smoothstep(1.04, WAVE_SECONDS, _wave_time))
-        hand_swing = hand_raise * sin((_wave_time-0.24)*TAU*2.5)
+        hand_raise = smoothstep(0.0, 0.40, _wave_time) * (1.0-smoothstep(1.30, WAVE_SECONDS, _wave_time))
+        var beat := clampf((_wave_time-0.33)/1.02, 0.0, 1.0)
+        var envelope := smoothstep(0.0, 0.13, beat) * (1.0-smoothstep(0.86, 1.0, beat))
+        hand_swing = envelope * sin(beat*TAU*2.0)
         waving = _wave_time < WAVE_SECONDS
     if flying or jumping:
         _advance_travel(dt)

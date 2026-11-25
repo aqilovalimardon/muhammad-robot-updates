@@ -19,7 +19,7 @@ func run(r):
         await r.get_tree().process_frame
         var passed=false
         match sequence[stage]:
-            "hello":passed=r.raised_sleeve.visible and r.right_hand.position.y>0.2 if motion_test else r.emotion=="excited"
+            "hello":passed=r.wave_upper_arm.visible and r.right_hand.position.y>0.2 if motion_test else r.emotion=="excited"
             "fly":passed=r.motion.flying
             "stop":passed=not r.motion.flying and not r.motion.jumping
             "jump":passed=r.motion.jumping and r.motion.jump_height>0.6

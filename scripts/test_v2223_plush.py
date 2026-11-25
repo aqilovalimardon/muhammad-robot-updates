@@ -22,14 +22,14 @@ from test_v2222_popup import popup_checks, pump
 
 def upgrade(baseline, archive, root, motion=False):
     previous = baseline.stem.removeprefix('MuhammadRobot-')
-    versions = {'2.2.23': '2.2.24', '2.2.24': '2.2.25'} if motion else {'2.2.22': VERSION}
+    versions = {'2.2.23': '2.2.24', '2.2.24': '2.2.25', '2.2.25': '2.2.26'} if motion else {'2.2.22': VERSION}
     version = versions[previous]
     manifest = json.loads((archive.parent / 'manifest.json').read_text())
     assert manifest['version'] == version and manifest['zip'] == archive.name
     with zipfile.ZipFile(baseline) as old, zipfile.ZipFile(archive) as new:
         assert new.testzip() is None and set(new.namelist()) == FILES
         changed = {CORE, PACK}
-        if version != '2.2.25':
+        if version in ('2.2.23', '2.2.24'):
             changed.add(APP)
         if version == '2.2.24':
             voice = 'app/voice_commands.py'

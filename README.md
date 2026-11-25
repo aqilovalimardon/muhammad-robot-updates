@@ -1,6 +1,10 @@
 # muhammad-robot-updates
 Automatic updates for Muhammad's desktop robot
 
+## v2.2.26 — a natural greeting and a luminous flight trail
+
+**Hello robot** lifts the mitten beside the cheek and waves twice from a bent elbow. **Fly robot** traces a tapered jade ribbon with fine blue and gold threads. **Stop robot** holds the robot in place while the last ribbons slowly fade over 2.4 seconds. **Close robot** clears them when it folds into the cream orb.
+
 ## v2.2.25 — softer flight and a smoke trail
 
 **Fly robot** eases into flight. The plush leans into its path, stretches as it gains speed, and rebounds as it turns. Its feet and antenna follow a little later. A longer trail of pale blue-gray smoke drifts upward and fades behind it. **Stop robot** stops the desktop window on the spot and clears the smoke as the plush settles.

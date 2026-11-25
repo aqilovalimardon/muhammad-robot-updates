@@ -409,15 +409,7 @@ func motion_checks(r):
     path.advance(0.10)
     check(path.jump_height>0.0 and path.location.y==bounds.position.y,"a hop at the top keeps the robot on screen")
 
-    r._cancel_hold()
-    r._handle_host_command("wave")
-    for i in 12:r._process(1.0/30.0)
-    check(r.raised_sleeve.visible and r.right_hand.position.y>0.28 and r.left_hand.position.y<0.0,"Hello raises one attached arm")
-    if DisplayServer.get_name()!="headless":
-        await RenderingServer.frame_post_draw
-        _review_frame(r,"hello")
-    for i in 40:r._process(1.0/30.0)
-    check(not r.raised_sleeve.visible and r.right_hand.position.y<0.0,"waving finishes naturally")
+    await _wave_checks(r)
     var native := DisplayServer.get_name()!="headless"
     var window:Window=r.get_window()
     if native:
@@ -435,18 +427,20 @@ func motion_checks(r):
         var wake=layer.get_texture().get_image()
         wake.convert(Image.FORMAT_RGBA8)
         var pixels=0
-        var soft_pixels=0
+        var jade=0
+        var gold=0
         var reach=0.0
         var avatar=Rect2i(window.position,window.size)
         for y in wake.get_height():
             for x in wake.get_width():
                 var desktop_pixel=layer.position+Vector2i(x,y)
                 if avatar.has_point(desktop_pixel):continue
-                var alpha=wake.get_pixel(x,y).a
-                if alpha>0.15:pixels+=1
-                if alpha>0.035 and alpha<0.19:soft_pixels+=1
-                if alpha>0.08:reach=maxf(reach,desktop_pixel.distance_to(avatar.get_center()))
-        check(pixels>380 and soft_pixels>450 and reach>160.0,"rendered smoke has a long, wide translucent edge beyond the avatar: "+str([pixels,soft_pixels,reach]))
+                var ink=wake.get_pixel(x,y)
+                if ink.a>0.15:pixels+=1
+                if ink.g-ink.r>0.10 and ink.g>ink.b:jade+=1
+                if ink.r-ink.b>0.09 and ink.r>ink.g:gold+=1
+                if ink.a>0.08:reach=maxf(reach,desktop_pixel.distance_to(avatar.get_center()))
+        check(pixels>350 and jade>35 and gold>15 and reach>160.0,"jade and gold ribbons extend behind the avatar: "+str([pixels,jade,gold,reach]))
         var folder=OS.get_environment("ROBOT_REVIEW_DIR")
         if not folder.is_empty():
             var both=Rect2i(layer.position,layer.size).merge(avatar)
@@ -460,8 +454,11 @@ func motion_checks(r):
     r._handle_host_command("stop")
     var freeze=window.position
     for i in 18:r._process(1.0/30.0)
-    check(not r.motion.flying and window.position==freeze and (r.flight_trail==null or not r.flight_trail.visible),"Stop freezes the window and clears the wake")
+    check(not r.motion.flying and window.position==freeze,"Stop freezes the desktop position immediately")
     if native:
+        check(r.flight_trail.visible,"the existing trail lingers after Stop")
+        for i in 60:r._process(1.0/30.0)
+        check(window.position==freeze and not r.flight_trail.visible,"afterglow expires without moving the robot")
         window.position=Vector2i(freeze.x,r._motion_limits().get_center().y)
         freeze=window.position
     r._handle_host_command("jump")
@@ -485,10 +482,42 @@ func motion_checks(r):
     check(not r.hidden and not r.motion.flying,"Open restores the stationary plush")
     check(r.motion.lean==Vector2.ZERO and r.motion.follow_through==Vector2.ZERO,"the restored plush starts with no flight deformation")
     if native:
-        await _smoke_checks(r)
-        if not failed:print("PASS: flight lean, elastic response and translucent smoke on the native desktop")
+        await _ribbon_checks(r)
+        if not failed:print("PASS: articulated wave, layered light ribbons and lingering afterglow on the native desktop")
     r.feedback.enabled = sound_enabled
     if not failed:print("PASS: Hello hand wave, bounded desktop flight, trail, immediate stop, single jump and manual control")
+
+func _wave_checks(r):
+    r._cancel_hold()
+    r._handle_host_command("wave")
+    var smooth := true
+    var narrowest_x := INF
+    var widest_x := -INF
+    var previous:Vector3
+    var raised_elbow:Vector3
+    var review := {5:"hello_lift",12:"hello",16:"hello_in",24:"hello_out",45:"hello_lower"}
+    for i in range(1,57):
+        if i==20:r._handle_host_command("wave")
+        r._process(1.0/30.0)
+        var palm:Vector3 = r.right_hand.position
+        if i>1:smooth = smooth and previous.distance_to(palm)<0.115
+        previous = palm
+        if r.wave_upper_arm.visible:
+            var elbow:Vector3 = 2.0*r.wave_upper_arm.position-r.WAVE_SHOULDER
+            smooth = smooth and absf(elbow.distance_to(r.WAVE_SHOULDER)-r.UPPER_ARM_LENGTH)<0.001
+            smooth = smooth and absf(elbow.distance_to(palm)-r.ELBOW_TO_PALM)<0.001
+            if i>=12 and i<=38:
+                if i==12:raised_elbow=elbow
+                smooth = smooth and elbow.distance_to(raised_elbow)<0.003
+                smooth = smooth and palm.y>0.22 and palm.x>0.71 and r.right_hand.basis.y.normalized().y>0.69
+                smooth = smooth and r.left_hand.position.y<0.0
+                narrowest_x=minf(narrowest_x,palm.x)
+                widest_x=maxf(widest_x,palm.x)
+        if review.has(i) and DisplayServer.get_name()!="headless" and not OS.get_environment("ROBOT_REVIEW_DIR").is_empty():
+            await RenderingServer.frame_post_draw
+            _review_frame(r,review[i])
+    check(smooth and widest_x-narrowest_x>0.11,"a fixed-length bent arm waves from a planted elbow with an upright mitten")
+    check(not r.motion.waving and not r.wave_upper_arm.visible and r.right_hand.position.y<0.0 and r.right_hand.scale.is_equal_approx(r.REST_HAND_SIZE),"the greeting settles back into its ordinary hand pose")
 
 func _flight_pose_checks(r):
     var path = r.motion
@@ -524,24 +553,45 @@ func _flight_pose_checks(r):
     check(freeze==path.location and path.lean.length()<0.001 and path.follow_through.length()<0.001,"stopping fixes the window while the elastic pose settles")
     path.reset_flight_pose()
 
-func _smoke_checks(r):
+func _ribbon_checks(r):
     var layer = r.flight_trail
     var base := Vector2(r._work_area().get_center())-Vector2(120,0)
     var counts := []
     for fps in [15,60]:
         layer.clear_trail()
         for i in range(fps+1):
-            var point := base+Vector2(216.0*i/fps,0.0)
-            layer.sample(point,base+Vector2(140,0),base+Vector2(140,22),1.0/fps)
-        counts.append(layer.smoke.puffs.size())
-    check(counts[0]==counts[1] and counts[0]>=35,"smoke density follows travel distance across frame rates")
+            var point := base+Vector2(220.0*i/fps,0.0)
+            layer.advance(1.0/fps,true,point,base+Vector2(140,0),base+Vector2(140,22))
+        counts.append(layer.ribbons.knots.size())
+    check(counts[0]==counts[1] and counts[0]>=40,"ribbons sample equal distances across frame rates")
     await RenderingServer.frame_post_draw
     var image=layer.get_texture().get_image()
     var face:=Vector2i(base+Vector2(140,0))-Vector2i(layer.position)
-    check(image.get_pixelv(face).a<0.01 and image.get_pixelv(face+Vector2i(65,0)).a>0.13,"smoke stays behind the face during a crossing")
-    for i in 120:
-        layer.sample(base+Vector2(216,0),base,base,1.0/60.0)
-    check(layer.smoke.puffs.is_empty() and not layer.visible,"stationary exhaust fades fully without piling up")
+    check(image.get_pixelv(face).a<0.01 and image.get_pixelv(face+Vector2i(65,0)).a>0.13,"ribbons stay behind the face during a crossing")
+    var probe := base+Vector2(195,0)
+    var brightness := []
+    for frames in [24,36,57]:
+        for i in frames:layer.advance(1.0/60.0,false,base,base,base)
+        await RenderingServer.frame_post_draw
+        image=layer.get_texture().get_image()
+        var local := Vector2i(probe)-Vector2i(layer.position)
+        var energy := 0.0
+        for y in range(-20,21):energy+=image.get_pixelv(local+Vector2i(0,y)).a
+        brightness.append(energy)
+    check(brightness[0]>brightness[1] and brightness[1]>brightness[2] and brightness[2]>0.01,"a fixed patch of afterglow dims gradually for nearly two seconds")
+    for i in 45:layer.advance(1.0/60.0,false,base,base,base)
+    check(layer.ribbons.knots.is_empty() and not layer.visible,"the last light disappears on its own")
+    var away := base+Vector2(0,120)
+    for i in 21:layer.advance(1.0/30.0,true,base+Vector2(i*5,0),away,away)
+    layer.end_emission()
+    for i in 21:layer.advance(1.0/30.0,true,base+Vector2(180+i*5,0),away,away)
+    await RenderingServer.frame_post_draw
+    image=layer.get_texture().get_image()
+    var gap:=Vector2i(base+Vector2(140,0))-Vector2i(layer.position)
+    var empty_gap:=true
+    for y in range(-18,19):
+        if image.get_pixelv(gap+Vector2i(0,y)).a>0.02:empty_gap=false
+    check(empty_gap,"restarting flight leaves separate strokes without a line across the gap")
     layer.clear_trail()
 
 func _composite_viewport(picture: Image, source: Image, origin: Vector2i):

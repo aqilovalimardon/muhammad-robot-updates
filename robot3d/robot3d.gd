@@ -10,6 +10,10 @@ const DESK_SIZE=Vector2i(176,200)
 const ORB_SIZE=Vector2i(64,64)
 const CREAM=Color(0.89,0.78,0.64)
 const ICE=Color(0.61,0.88,1.0)
+const WAVE_SHOULDER := Vector3(0.45, -0.095, 0.04)
+const UPPER_ARM_LENGTH := 0.38
+const ELBOW_TO_PALM := 0.235
+const REST_HAND_SIZE := Vector3(0.21, 0.32, 0.22)
 var robot:Node3D
 var head:Node3D
 var antenna:Node3D
@@ -36,7 +40,7 @@ var squish_velocity=0.0
 var spring_head=0.0
 var left_hand:MeshInstance3D
 var right_hand:MeshInstance3D
-var raised_sleeve:MeshInstance3D
+var wave_upper_arm:MeshInstance3D
 var flight_pose := Node3D.new()
 var motion := DesktopMotion.new()
 var flight_trail: FlightTrail
@@ -258,10 +262,10 @@ func _character():
     pet_surfaces.append(torso)
     left_hand=_sphere(robot,"LeftHand",Vector3(-0.63,-0.24,0),Vector3(0.21,0.32,0.22),soft)
     left_hand.rotation_degrees.z=-15
-    right_hand=_sphere(robot,"RightHand",Vector3(0.63,-0.24,0),Vector3(0.21,0.32,0.22),soft)
+    right_hand=_sphere(robot,"RightHand",Vector3(0.63,-0.24,0),REST_HAND_SIZE,soft)
     right_hand.rotation_degrees.z=15
-    raised_sleeve=_sphere(robot,"RaisedSleeve",Vector3.ZERO,Vector3(0.12,0.20,0.12),soft)
-    raised_sleeve.hide()
+    wave_upper_arm=_sphere(robot,"RightUpperArm",WAVE_SHOULDER,Vector3(0.15,0.24,0.16),soft)
+    wave_upper_arm.hide()
     pet_surfaces.append(left_hand)
     pet_surfaces.append(right_hand)
     left_foot=_sphere(robot,"FootLeft",Vector3(-0.30,-0.80,0.18),Vector3(0.29,0.22,0.30),soft)
@@ -518,6 +522,8 @@ func _action(command:String):
 func _hide():
     if hidden:return
     _stop_motion()
+    if flight_trail != null:
+        flight_trail.clear_trail()
     motion.reset_flight_pose()
     _cancel_hold()
     feedback.play_cue("close")
@@ -578,7 +584,7 @@ func _handle_host_command(data: String):
         match data:
             "wave":
                 motion.wave()
-                _set_emotion("excited",1.35)
+                _set_emotion("excited",DesktopMotion.WAVE_SECONDS)
             "fly":
                 menu.visible=false
                 motion.fly(get_window().position,_motion_limits())
@@ -601,7 +607,7 @@ func _motion_limits() -> Rect2i:
 func _stop_motion():
     motion.stop()
     if flight_trail != null:
-        flight_trail.clear_trail()
+        flight_trail.end_emission()
 
 func _advance_motion(delta: float):
     var moving := motion.flying or motion.jumping
@@ -609,17 +615,19 @@ func _advance_motion(delta: float):
     if moving:
         get_window().position = Vector2i(motion.location.round())
 
-func _update_smoke(delta: float, camera: Camera3D):
-    if not motion.flying or DisplayServer.get_name() == "headless":
-        return
+func _update_flight_trail(delta: float, camera: Camera3D):
     if flight_trail == null:
+        if not motion.flying or DisplayServer.get_name() == "headless":
+            return
         flight_trail = FlightTrail.new()
         add_child(flight_trail)
+    if not motion.flying and flight_trail.ribbons.knots.is_empty():
+        return
     var origin := Vector2(get_window().position)
     var face := origin + camera.unproject_position(head.to_global(Vector3(0.0, -0.03, 0.46)))
     var chest := origin + camera.unproject_position(robot.to_global(Vector3(0.0, -0.29, 0.14)))
     var heading := (motion.velocity / 110.0).limit_length(1.0)
-    flight_trail.sample(face.lerp(chest, 0.58)-heading*54.0, face, chest, delta)
+    flight_trail.advance(delta, motion.flying, face.lerp(chest, 0.58)-heading*54.0, face, chest)
 
 func _apply_flight_pose():
     var lean := motion.lean.limit_length(1.0)
@@ -659,15 +667,32 @@ func _apply_motion_pose():
         right_hand.position.y += 0.16*motion.jump_height
         left_foot.position.y += 0.12*motion.jump_height
         right_foot.position.y += 0.12*motion.jump_height
-    raised_sleeve.visible = motion.hand_raise>0.01
-    if raised_sleeve.visible:
-        right_hand.position += Vector3(0.17*motion.hand_raise+0.065*motion.hand_swing,0.63*motion.hand_raise,0.15*motion.hand_raise)
-        right_hand.rotation.z += 0.48*motion.hand_raise+0.29*motion.hand_swing
-        var shoulder := Vector3(0.48,-0.19,0.04)
-        var arm := right_hand.position-shoulder
-        raised_sleeve.position = shoulder+arm*0.47
-        raised_sleeve.quaternion = Quaternion(Vector3.UP,arm.normalized())
-        raised_sleeve.scale = Vector3(0.13,arm.length()*0.55,0.13)
+    _apply_wave()
+
+func _apply_wave():
+    var lift := motion.hand_raise
+    right_hand.scale = REST_HAND_SIZE.lerp(Vector3(0.174, 0.276, 0.184), lift)
+    wave_upper_arm.visible = lift > 0.001
+    if not wave_upper_arm.visible:
+        return
+    # Carry the mitten around the cheek, then wave from the elbow with two fixed-length links.
+    var palm := right_hand.position.lerp(Vector3(0.84, 0.305, 0.16), lift)
+    palm += Vector3(0.14, -0.028, 0.09)*sin(PI*lift)
+    var reach := palm-WAVE_SHOULDER
+    var direction := reach.normalized()
+    var distance := clampf(reach.length(), UPPER_ARM_LENGTH-ELBOW_TO_PALM+0.001, UPPER_ARM_LENGTH+ELBOW_TO_PALM-0.001)
+    var along := (UPPER_ARM_LENGTH*UPPER_ARM_LENGTH-ELBOW_TO_PALM*ELBOW_TO_PALM+distance*distance)/(2.0*distance)
+    var bend := sqrt(maxf(0.0, UPPER_ARM_LENGTH*UPPER_ARM_LENGTH-along*along))
+    var outward := Vector3(direction.y, -direction.x, 0.0).normalized()
+    var upper := direction*along + outward*bend
+    var elbow := WAVE_SHOULDER+upper
+    var forearm := (direction*distance-upper).rotated(Vector3.BACK, 0.34*motion.hand_swing)
+    right_hand.position = elbow+forearm
+    right_hand.quaternion = right_hand.quaternion.slerp(Quaternion(Vector3.UP, forearm.normalized()), lift)
+    wave_upper_arm.position = WAVE_SHOULDER+upper*0.5
+    wave_upper_arm.quaternion = Quaternion(Vector3.UP, upper.normalized())
+    var thickness := 0.158*smoothstep(0.0, 0.33, lift)+0.001
+    wave_upper_arm.scale = Vector3(thickness, UPPER_ARM_LENGTH*0.5+0.09, thickness*1.05)
 
 func _process(delta:float):
     t+=minf(delta,0.05)
@@ -688,7 +713,7 @@ func _process(delta:float):
     _apply_motion_pose()
     antenna_glow.update_glow(t,emotion,delta)
     var camera=get_viewport().get_camera_3d()
-    _update_smoke(delta,camera)
+    _update_flight_trail(delta,camera)
     belly.position=camera.unproject_position(robot.to_global(Vector3(0,-0.37,0.57)))-belly.size*0.5
     var cursor=DisplayServer.mouse_get_position()-get_window().position
     var offset=Vector2(cursor.x-88.0,cursor.y-100.0)
@@ -752,7 +777,7 @@ func _advance_soft_body(delta:float):
     head.scale=Vector3(1.0-squish*0.15,1.0+squish*0.18,1.0)
     var arms=0.25 if emotion=="angry" else (0.16*sin(t*13.0) if emotion=="laugh" else 0.0)
     left_hand.rotation.z=-0.26-squish*2.1+head_lag.x*2.0-arms
-    right_hand.rotation.z=0.26+squish*2.1+head_lag.x*2.0+arms
+    right_hand.rotation=Vector3(0.0,0.0,0.26+squish*2.1+head_lag.x*2.0+arms)
     var tuck=sad_weight*0.13
     var lift=laugh_weight*(0.10+0.07*jiggle)
     left_hand.position=Vector3(-0.63+tuck,-0.24+head_lag.y*0.8+lift-tuck*0.55,tuck*0.9)
