@@ -11,6 +11,10 @@ func run(r):
         for i in range(15):r._process(1.0/30.0)
         await RenderingServer.frame_post_draw
         r.get_viewport().get_texture().get_image().save_png(output+"/"+state+".png")
+    r._handle_host_command("cry")
+    for i in 19:r._process(1.0/30.0)
+    await RenderingServer.frame_post_draw
+    r.get_viewport().get_texture().get_image().save_png(output+"/cry.png")
     r._set_emotion("idle",5.0)
     for i in 25:r._process(1.0/30.0)
     var camera=r.get_viewport().get_camera_3d()

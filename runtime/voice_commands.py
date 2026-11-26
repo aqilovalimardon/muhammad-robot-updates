@@ -104,7 +104,7 @@ def setup(root:Path, inform=lambda text:None) -> None:
 # Vosk builds a small word graph from these phrases. Only complete, addressed
 # commands from the same table are eligible for dispatch.
 VERBS = {
-    'fly': ('fly', 'flay'), 'stop': ('stop',), 'jump': ('jump',),
+    'fly': ('fly', 'flay'), 'stop': ('stop',), 'jump': ('jump', 'rump'), 'cry': ('cry',),
     'open': ('open', 'show'), 'close': ('close', 'hide'), 'hello': ('hello', 'hi'),
 }
 PHRASES = {'hey robot': 'hello'}
@@ -218,13 +218,12 @@ class SpeechLeveler:
         samples.frombytes(data)
         peak = max(abs(min(samples)), max(samples))
         self.peak = max(self.peak, peak)
-        if peak < 40:
-            return data
-        wanted = min(8.0, max(1.0, 8000.0/peak))
-        # Reduce gain immediately for louder sounds; ease it up across real speech.
+        # Recover gain through pauses so the first quiet consonant gets the
+        # same boost as the following vowel. Loud onsets still reduce it immediately.
+        wanted = min(8.0, max(1.0, 8000.0/max(1,peak)))
         amount = 1.0-math.exp(-len(samples)/1600.0)
         self.gain = min(wanted, self.gain+(wanted-self.gain)*amount)
-        if self.gain <= 1.01:
+        if peak == 0 or self.gain <= 1.01:
             return data
         return array('h', (round(s*self.gain) for s in samples)).tobytes()
 

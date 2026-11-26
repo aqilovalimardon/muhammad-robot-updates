@@ -286,6 +286,7 @@ func run(r):
     r._show()
     check(played.size()==count and not r.hidden,"mute keeps open/close working")
     await _coat_checks(r)
+    _cry_checks(r)
     await motion_checks(r)
     r.feedback.cue_played.disconnect(heard_callback)
     r.feedback.player.stop()
@@ -370,6 +371,54 @@ func _coat_checks(r):
         "laughter bounces the body and lifts the arms")
     check(r.feedback.sounds["sad"].data!=r.feedback.sounds["laugh"].data,"sigh and giggle have distinct audio")
     if not failed:print("PASS: local fur stretch, 3D-only gestures, quiet sad/laugh poses, mute and recovery")
+
+func _cry_checks(r):
+    var enabled: bool = r.feedback.enabled
+    r._cancel_hold()
+    r.feedback.enabled = true
+    var count := played.count("cry")
+    r._handle_host_command("cry")
+    for i in 9:r._process(1.0/30)
+    var first_y: float = r.cry_tears[0].position.y
+    var elapsed: float = r.cry_elapsed
+    r._handle_host_command("cry")
+    check(played.count("cry")==count+1 and r.cry_elapsed==elapsed,"repeat Cry preserves the current sob")
+    for i in 12:r._process(1.0/30)
+    check(r.sad_face.visible and not r.sad_tear.visible and r.sad_weight>0.9,"cry lowers the plush and shows a frown")
+    check(r.cry_tears[0].visible and r.cry_tears[1].visible and r.cry_tears[0].position.y<first_y-0.14
+        and r.cry_tears[1].position.y>r.cry_tears[0].position.y+0.05,"tears roll separately down both cheeks")
+    var voice: AudioStreamWAV = r.feedback.sounds["cry"]
+    var pcm := voice.data
+    var peak := 0
+    var pulses := 0
+    var previous_loud := false
+    var block := voice.mix_rate/25
+    for start in range(0,pcm.size()/2,block):
+        var local_peak := 0
+        for frame in range(start,mini(start+block,pcm.size()/2)):
+            local_peak=maxi(local_peak,absi(pcm.decode_s16(frame*2)))
+        peak=maxi(peak,local_peak)
+        if local_peak>1500 and not previous_loud:pulses+=1
+        previous_loud=local_peak>1500
+    check(pulses==3 and peak>2000 and peak<12000 and pcm.decode_s16(0)==0 and pcm.decode_s16(pcm.size()-2)==0,
+        "cry has three quiet voiced sobs with clean boundaries")
+    r._handle_host_command("stop")
+    r._process(0.03)
+    check(r.emotion=="idle" and not r.cry_tears[0].visible and not r.feedback.player.playing,"Stop ends cry and its sound")
+    r.feedback.enabled=false
+    r._handle_host_command("fly")
+    r._handle_host_command("cry")
+    for i in 20:r._process(1.0/30)
+    check(r.motion.flying and r.cry_tears[1].visible and played.count("cry")==count+1,"muted cry works during flight")
+    for i in 80:r._process(1.0/30)
+    check(r.emotion=="idle" and not r.cry_tears[1].visible and r.motion.flying,"cry settles without stopping flight")
+    r._hide()
+    r._handle_host_command("cry")
+    r._process(0.03)
+    check(r.hidden and r.emotion!="cry","the closed orb ignores Cry")
+    r._show()
+    r.feedback.enabled=enabled
+    if not failed:print("PASS: voice Cry animates two falling tears and three gentle sobs, respects mute, Stop and the closed orb")
 
 func motion_checks(r):
     r.set_process(false)
@@ -484,6 +533,7 @@ func motion_checks(r):
     if native:
         await _ribbon_checks(r)
         if not failed:print("PASS: articulated wave, layered light ribbons and lingering afterglow on the native desktop")
+        await _render_cry(r)
     r.feedback.enabled = sound_enabled
     if not failed:print("PASS: Hello hand wave, bounded desktop flight, trail, immediate stop, single jump and manual control")
 
@@ -614,6 +664,32 @@ func _ribbon_checks(r):
         if image.get_pixelv(gap+Vector2i(0,y)).a>0.02:empty_gap=false
     check(empty_gap,"restarting flight leaves separate strokes without a line across the gap")
     layer.clear_trail()
+
+func _render_cry(r):
+    r._handle_host_command("cry")
+    for i in 19:r._process(1.0/30.0)
+    await RenderingServer.frame_post_draw
+    _review_frame(r,"cry")
+    var wet: Image = r.get_viewport().get_texture().get_image()
+    var camera: Camera3D = r.get_viewport().get_camera_3d()
+    var cheeks: Array[Vector2i] = []
+    for drop in r.cry_tears:
+        cheeks.append(Vector2i(camera.unproject_position(drop.global_position)))
+        drop.hide()
+    await RenderingServer.frame_post_draw
+    var dry: Image = r.get_viewport().get_texture().get_image()
+    for point in cheeks:
+        var pixels := 0
+        for y in range(-5,6):
+            for x in range(-5,6):
+                var at := point + Vector2i(x,y)
+                var water := wet.get_pixelv(at)
+                var skin := dry.get_pixelv(at)
+                if water.b > water.r+0.15 and absf(water.r-skin.r)+absf(water.b-skin.b)>0.20:
+                    pixels+=1
+        check(pixels>=3,"each cheek has a rendered blue tear: "+str(pixels))
+    r._handle_host_command("stop")
+    if not failed:print("PASS: both blue tears are visible on the rendered desktop robot")
 
 func _composite_viewport(picture: Image, source: Image, origin: Vector2i):
     # Viewport textures contain premultiplied color as sent to the desktop compositor.

@@ -355,12 +355,12 @@ class RobotApp:
 
     def _signal_real3d(self,command):
         signal = self._three_d_signal
-        if signal is None or command not in ('hide','show','sound','emotion','happy','wave','fly','stop','jump'):
+        if signal is None or command not in ('hide','show','sound','emotion','happy','wave','fly','stop','jump','cry'):
             return
         if command == 'happy' and (self._pending_3d or signal.is_file()):
             return
         if command in ('stop', 'hide'):
-            self._pending_3d = [item for item in self._pending_3d if item not in ('fly', 'jump', 'wave')]
+            self._pending_3d = [item for item in self._pending_3d if item not in ('fly', 'jump', 'wave', 'cry')]
         self._pending_3d.append(command)
         self._flush_3d_commands()
 
@@ -529,7 +529,7 @@ class RobotApp:
         if not self.root.winfo_exists():return
         if messagebox.askyesno('English voice commands',
             'Would you like to enable OFFLINE English voice commands?\n\n'
-            'Say Hello robot, Fly robot, Stop robot, Jump robot, Open robot or Close robot.\n'
+            'Say Hello robot, Fly robot, Stop robot, Jump robot (or Rump robot), Cry robot, Open robot or Close robot.\n'
             'The microphone audio stays on this computer.\n\n'
             'One-time setup downloads about 40 MB for the voice model plus Python libraries.\n'
             'Use only with permission on a school-managed laptop.', parent=self.root):
@@ -592,7 +592,7 @@ class RobotApp:
             f'Last speech heard: {self.mic_last_heard}\n'
             f'Last command: {self.mic_last_command}\n'
             f'Robot speaking now: {"YES" if self.voice.speaking.is_set() else "NO"}\n\n'
-            'Say Hello robot, Fly robot, Stop robot, Jump robot, Open robot or Close robot.\n'
+            'Say Hello robot, Fly robot, Stop robot, Jump robot (or Rump robot), Cry robot, Open robot or Close robot.\n'
             'If the last speech is blank, check microphone input / permissions.\n'
             'The voice model runs locally; speech is not sent to a server.')
 
@@ -680,7 +680,7 @@ class RobotApp:
                     if value=='open':self.restore()
                     elif value=='close':self.minimize()
                     elif value=='hello':self.say('Hello, Muhammad! Let us code together!', 'wave')
-                    elif value in ('fly','stop','jump'):
+                    elif value in ('fly','stop','jump','cry'):
                         self._dismiss_shared_menu()
                         self._signal_real3d(value)
                 elif event=='mic_heard':self.mic_last_heard=str(value)[:100] or '(silence)'
@@ -702,7 +702,7 @@ class RobotApp:
                     if hasattr(self,'voice_dialog') and self.voice_dialog[0].winfo_exists():self.voice_dialog[0].destroy()
                     if event=='setup_done':
                         self.start_microphone()
-                        messagebox.showinfo('Voice commands','Ready! Say Hello robot, Fly robot, Stop robot, Jump robot, Open robot or Close robot.',parent=self.root)
+                        messagebox.showinfo('Voice commands','Ready! Say Hello robot, Fly robot, Stop robot, Jump robot (or Rump robot), Cry robot, Open robot or Close robot.',parent=self.root)
                     else:messagebox.showerror('Voice setup',value,parent=self.root)
         except queue.Empty:pass
         finally:

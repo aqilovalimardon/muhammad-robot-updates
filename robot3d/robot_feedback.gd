@@ -4,6 +4,9 @@ signal cue_played(cue: String)
 
 const SAMPLE_RATE = 22050
 const PREFERENCES = "user://feedback.cfg"
+const SOB_PERIOD := 0.86
+const SOB_LENGTH := 0.62
+const CRY_AUDIO_SECONDS := 2.0*SOB_PERIOD + SOB_LENGTH
 var enabled = true
 var sounds: Dictionary = {}
 var player: AudioStreamPlayer
@@ -26,6 +29,7 @@ func _ready():
     # Soft, voiced syllables with a little breath, generated offline once.
     sounds["laugh"] = _vocal_sound(false)
     sounds["sad"] = _vocal_sound(true)
+    sounds["cry"] = _cry_sound()
     sounds["grumpy"] = _make_sound([[330.0, 245.0, 0.16, 0.30], [270.0, 220.0, 0.08, 0.22]])
     var config = ConfigFile.new()
     if config.load(PREFERENCES) == OK:
@@ -47,12 +51,7 @@ func _make_sound(notes: Array) -> AudioStreamWAV:
             var sample = (sin(phase) + 0.13 * sin(phase * 2.0)) / 1.13
             var value = int(sample * envelope * float(note[3]) * 32767.0)
             pcm.encode_s16(offset + i * 2, value)
-    var stream = AudioStreamWAV.new()
-    stream.format = AudioStreamWAV.FORMAT_16_BITS
-    stream.mix_rate = SAMPLE_RATE
-    stream.stereo = false
-    stream.data = pcm
-    return stream
+    return _mono_wav(pcm)
 
 func _vocal_sound(sigh: bool) -> AudioStreamWAV:
     var length := 0.43 if sigh else 0.47
@@ -80,6 +79,35 @@ func _vocal_sound(sigh: bool) -> AudioStreamWAV:
         if not sigh:voice+=0.065*sin(5.0*phase)
         var amplitude := 0.25 if sigh else 0.30
         pcm.encode_s16(i*2,roundi(32767.0*amplitude*envelope*(voice+0.085*breath)))
+    return _mono_wav(pcm)
+
+# Three softer breaths, with a pause for air. The shoulders follow the same pulse.
+static func sob_strength(seconds: float) -> float:
+    if seconds < 0.0 or seconds >= CRY_AUDIO_SECONDS:
+        return 0.0
+    var u := minf(fposmod(seconds, SOB_PERIOD)/SOB_LENGTH, 1.0)
+    var strength := 1.0 - 0.16*floorf(seconds/SOB_PERIOD)
+    return strength * pow(maxf(0.0, sin(PI*u)), 1.45)
+
+func _cry_sound() -> AudioStreamWAV:
+    var pcm := PackedByteArray()
+    var frames := ceili(CRY_AUDIO_SECONDS*SAMPLE_RATE)
+    pcm.resize(frames*2)
+    var phase := 0.0
+    var breath := 0.0
+    var rng := RandomNumberGenerator.new()
+    rng.seed = 2831
+    for i in frames:
+        var sec := float(i)/SAMPLE_RATE
+        var u := minf(fposmod(sec, SOB_PERIOD)/SOB_LENGTH, 1.0)
+        var pitch := 338.0 + 70.0*sin(PI*u) - 84.0*u - 8.0*floorf(sec/SOB_PERIOD)
+        phase += TAU*(pitch + 9.0*sin(TAU*6.1*sec))/SAMPLE_RATE
+        breath = 0.78*breath + 0.22*rng.randf_range(-1.0,1.0)
+        var voice := 0.54*sin(phase) + 0.25*sin(2.0*phase) + 0.13*sin(3.0*phase) + 0.08*sin(5.0*phase)
+        pcm.encode_s16(i*2, roundi(32767.0*0.30*sob_strength(sec)*(voice + 0.13*breath)))
+    return _mono_wav(pcm)
+
+func _mono_wav(pcm: PackedByteArray) -> AudioStreamWAV:
     var stream := AudioStreamWAV.new()
     stream.format = AudioStreamWAV.FORMAT_16_BITS
     stream.mix_rate = SAMPLE_RATE
@@ -89,7 +117,7 @@ func _vocal_sound(sigh: bool) -> AudioStreamWAV:
 func play_cue(cue: String) -> bool:
     if not enabled or not sounds.has(cue):return false
     var now = Time.get_ticks_msec()
-    var command = cue == "close" or cue == "open"
+    var command = cue in ["close","open","cry"]
     if cue=="grumpy" and now<next_grumpy_ms:return false
     if cue=="sad" and now<next_sad_ms:return false
     if not command and (now < command_until_ms or (now < next_touch_ms and cue not in ["grumpy","sad"])):
@@ -106,6 +134,11 @@ func play_cue(cue: String) -> bool:
         next_touch_ms = now + (int(player.stream.get_length()*1000.0)+100 if cue in ["laugh","sad"] else 130)
     cue_played.emit(cue)
     return true
+
+func stop_cry():
+    if player.stream == sounds["cry"]:
+        player.stop()
+        command_until_ms = 0
 
 func toggle_enabled() -> bool:
     enabled = not enabled

@@ -14,6 +14,7 @@ const WAVE_SHOULDER := Vector3(0.45, -0.095, 0.04)
 const UPPER_ARM_LENGTH := 0.38
 const ELBOW_TO_PALM := 0.235
 const REST_HAND_SIZE := Vector3(0.21, 0.32, 0.22)
+const CRY_SECONDS := 3.0
 var robot:Node3D
 var head:Node3D
 var antenna:Node3D
@@ -68,6 +69,9 @@ var laugh_eyes:Array[Node3D]=[]
 var laugh_mouth:Node3D
 var angry_face:Node3D
 var sad_face:Node3D
+var sad_tear:MeshInstance3D
+var cry_tears:Array[MeshInstance3D]=[]
+var cry_elapsed := 0.0
 var fur_pull = PlushPull.new()
 var sad_weight := 0.0
 var laugh_weight := 0.0
@@ -362,8 +366,9 @@ func _expressive_face(mouth_mat:Material):
         var x2=x1+0.02
         _rod(sad_face,"DownturnedMouth",Vector3(x1,-0.183-4.0*x1*x1,0.70),
             Vector3(x2,-0.183-4.0*x2*x2,0.70),0.017,mouth_mat)
-    _sphere(sad_face,"Tear",Vector3(0.28,-0.13,0.72),Vector3(0.023,0.038,0.014),mouth_mat)
+    sad_tear = _sphere(sad_face,"Tear",Vector3(0.28,-0.13,0.72),Vector3(0.023,0.038,0.014),mouth_mat)
     sad_face.visible=false
+    _make_cry_tears()
     for x in [-0.22,0.22]:
         var eye=Node3D.new()
         eye.position=Vector3(x,-0.01,0.73)
@@ -397,6 +402,36 @@ func _expressive_face(mouth_mat:Material):
         _rod(dizzy_mouth,"WobblyMouth"+str(i),Vector3(a,-0.23+sin(a*55.0)*0.019,0.70),
             Vector3(b,-0.23+sin(b*55.0)*0.019,0.70),0.012,mouth_mat)
     dizzy_mouth.visible=false
+
+func _make_cry_tears():
+    # Pull the top of a round bead to a point. Both cheeks share the same mesh.
+    var sphere := SphereMesh.new()
+    sphere.radius = 1.0
+    sphere.height = 2.0
+    sphere.radial_segments = 16
+    sphere.rings = 10
+    var arrays := sphere.surface_get_arrays(0)
+    var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+    for i in vertices.size():
+        var point := vertices[i]
+        var top := smoothstep(-0.36, 1.0, point.y)
+        var radius := 1.0-0.80*top
+        vertices[i] = Vector3(point.x*radius, point.y+0.36*top, point.z*radius)
+    arrays[Mesh.ARRAY_VERTEX] = vertices
+    var shape := ArrayMesh.new()
+    shape.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+    var water := _mat(Color("48bce9"),0.24,0.18)
+    var glint := _mat(Color("dbf9ff"),0.45,0.35)
+    for side in [-1.0,1.0]:
+        var drop := MeshInstance3D.new()
+        drop.name = "LeftTear" if side < 0.0 else "RightTear"
+        drop.mesh = shape
+        drop.material_override = water
+        drop.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+        head.add_child(drop)
+        _sphere(drop,"Glint",Vector3(-0.25,-0.24,0.84),Vector3(0.20,0.31,0.14),glint)
+        drop.hide()
+        cry_tears.append(drop)
 
 func _heart_eye(x:float)->MeshInstance3D:
     var st=SurfaceTool.new()
@@ -580,6 +615,7 @@ func _handle_host_command(data: String):
         _set_emotion("excited",1.2)
     elif data=="stop":
         _stop_motion()
+        if emotion=="cry":_set_emotion("idle",0.0)
     elif not hidden and not dragging:
         match data:
             "wave":
@@ -591,6 +627,10 @@ func _handle_host_command(data: String):
             "jump":
                 menu.visible=false
                 motion.jump(get_window().position,_motion_limits())
+            "cry":
+                if emotion!="cry":
+                    _set_emotion("cry",CRY_SECONDS)
+                    feedback.play_cue("cry")
 
 func _work_area() -> Rect2i:
     var window := get_window()
@@ -740,10 +780,11 @@ func _process(delta:float):
         if p>0.18:blinking=0.0
 
 func _advance_soft_body(delta:float):
-    sad_weight = lerpf(sad_weight, float(emotion=="sad"), 1.0-exp(-delta*9.0))
+    sad_weight = lerpf(sad_weight, float(emotion in ["sad","cry"]), 1.0-exp(-delta*9.0))
     laugh_weight = lerpf(laugh_weight, float(emotion=="laugh"), 1.0-exp(-delta*12.0))
     if emotion=="laugh":laugh_time+=delta
     var jiggle := sin(laugh_time*TAU*4.6)
+    var sob := Feedback.sob_strength(cry_elapsed) if emotion=="cry" else 0.0
     # Substeps keep the spring response stable even after a slow frame.
     var remaining=minf(delta,0.12)
     while remaining>0.0:
@@ -751,7 +792,7 @@ func _advance_soft_body(delta:float):
         remaining-=step
         var target=clampf(0.265+absf(drag_force.x)*0.10+drag_force.y*0.12,0.06,0.37) if dragging else 0.0
         if fur_pull.pulling:target=0.095
-        target+=sad_weight*0.06+laugh_weight*(0.055+0.09*jiggle)
+        target+=sad_weight*0.06+laugh_weight*(0.055+0.09*jiggle)+0.055*sob
         squish_velocity+=((target-squish)*43.0-squish_velocity*5.4)*step
         squish=clampf(squish+squish_velocity*step,-0.22,0.39)
         var offset_target=-drag_force*0.17 if dragging else Vector2.ZERO
@@ -779,7 +820,7 @@ func _advance_soft_body(delta:float):
     left_hand.rotation.z=-0.26-squish*2.1+head_lag.x*2.0-arms
     right_hand.rotation=Vector3(0.0,0.0,0.26+squish*2.1+head_lag.x*2.0+arms)
     var tuck=sad_weight*0.13
-    var lift=laugh_weight*(0.10+0.07*jiggle)
+    var lift=laugh_weight*(0.10+0.07*jiggle)+0.11*sob
     left_hand.position=Vector3(-0.63+tuck,-0.24+head_lag.y*0.8+lift-tuck*0.55,tuck*0.9)
     right_hand.position=Vector3(0.63-tuck,-0.24-head_lag.y*0.8+lift-tuck*0.55,tuck*0.9)
     left_foot.position=Vector3(-0.30,-0.80+laugh_weight*0.045*jiggle+tuck*0.35,0.18)
@@ -792,6 +833,8 @@ func _advance_soft_body(delta:float):
     antenna.rotation.x=0.10*sin(t*2.7)+head_lag.y*1.8
 
 func _set_emotion(value:String,duration:float):
+    if value=="cry" and emotion!="cry":cry_elapsed=0.0
+    if emotion=="cry" and value!="cry":feedback.stop_cry()
     if value=="laugh" and emotion!="laugh":laugh_time=0.0
     emotion=value
     emotion_left=duration
@@ -807,6 +850,7 @@ func _show_next_emotion():
     emotion_cycle+=1
 
 func _update_emotion(delta:float):
+    if emotion=="cry":cry_elapsed+=delta
     emotion_left=maxf(0.0,emotion_left-delta)
     if fur_pull.pulling:
         if emotion!="sad":_set_emotion("sad",1.4)
@@ -831,6 +875,7 @@ func _update_emotion(delta:float):
     elif emotion=="sleepy":eye_scale=Vector3(1.04,0.22,1.0)
     elif emotion=="angry":eye_scale=Vector3(1.04,0.52,1.0)
     elif emotion=="sad":eye_scale=Vector3(0.91,0.82,1.0)
+    elif emotion=="cry":eye_scale=Vector3(0.96,0.77-0.34*Feedback.sob_strength(cry_elapsed),1.0)
     for i in range(pupils.size()):
         var target_scale=eye_scale
         if emotion=="wink":target_scale=Vector3(1.06,0.13 if i==0 else 1.02,1.0)
@@ -844,21 +889,36 @@ func _update_emotion(delta:float):
         pupils[i].scale=pupils[i].scale.lerp(target_scale,minf(1.0,delta*16.0))
         var tilt=0.10 if i==0 else -0.10
         if emotion=="angry":tilt=-0.20 if i==0 else 0.20
-        if emotion=="sad":tilt=0.17 if i==0 else -0.17
+        if emotion in ["sad","cry"]:tilt=0.17 if i==0 else -0.17
         pupils[i].rotation.z=lerpf(pupils[i].rotation.z,
-            tilt if emotion in ["happy","excited","angry","sad"] else 0.0,minf(1.0,delta*12.0))
+            tilt if emotion in ["happy","excited","angry","sad","cry"] else 0.0,minf(1.0,delta*12.0))
     smile.visible=emotion in ["happy","excited","wink","love"]
     surprised_mouth.visible=emotion=="surprised"
     laugh_mouth.visible=emotion=="laugh"
     laugh_mouth.scale.y=1.0+0.10*sin(t*18.0) if emotion=="laugh" else 1.0
     angry_face.visible=emotion=="angry"
-    sad_face.visible=emotion=="sad"
+    sad_face.visible=emotion in ["sad","cry"]
+    sad_tear.visible=emotion=="sad"
     if sad_face.visible:sad_face.rotation.z=0.014*sin(t*15.0)
+    _update_cry_tears()
     dizzy_mouth.visible=emotion=="dizzy"
     # The two black eyes on the small cream orb react to touch as well.
     var eye_height=11.0 if dragging else 16.0
     for eye in [orb_left_eye,orb_right_eye]:
         eye.size.y=lerpf(eye.size.y,eye_height,minf(1.0,delta*16.0))
+
+func _update_cry_tears():
+    for i in cry_tears.size():
+        var drop := cry_tears[i]
+        var age := cry_elapsed-0.05-0.30*i
+        drop.visible = emotion=="cry" and age>=0.0
+        if not drop.visible:continue
+        var u := fposmod(age,1.08)/1.08
+        var size_factor := smoothstep(0.0,0.14,u)*(1.0-smoothstep(0.80,1.0,u))*smoothstep(0.0,0.30,emotion_left)
+        var fall := smoothstep(0.16,0.96,u)
+        var side := -1.0 if i==0 else 1.0
+        drop.position = Vector3(side*(0.235+0.087*fall),-0.14-0.45*fall,0.728-0.045*fall)
+        drop.scale = Vector3(0.056,0.071+0.018*fall,0.030)*maxf(0.001,size_factor)
 
 func _begin_hold(pointer:Vector2i,point:=Vector2.INF):
     _stop_motion()

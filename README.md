@@ -1,6 +1,10 @@
 # muhammad-robot-updates
 Automatic updates for Muhammad's desktop robot
 
+## v2.2.28 — Rump and Cry voice commands
+
+Say **Rump robot** or **Jump robot** for a single jump. Say **Cry robot** to see tears roll down both cheeks. The robot lowers its head and its shoulders move with three quiet sobs. It settles after three seconds. **Stop robot** ends the crying immediately. Turning off **3D effect sounds** keeps the animation silent.
+
 ## v2.2.27 — faster offline commands and a wider flight trail
 
 Say **Fly robot**, **Flay robot** or **Robot fly** to take off. Fully recognized phrases respond before the final silence. You can follow one command with another in the same breath. Quiet speech receives a bounded gain boost. **Voice status / restart microphone** displays the input level from the selected device.

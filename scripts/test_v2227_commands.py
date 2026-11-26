@@ -102,7 +102,7 @@ def _check_microphone(commands, model, fixtures, quiet_fly):
     print('PASS: quiet headset input passed the real capture callback, 8 kHz resampling and offline decoder; speaker echo was ignored')
 
 
-def check_recordings(commands, model, fixtures):
+def check_recordings(commands, model, fixtures, cry_test=False):
     names = ('fly', 'jump', 'stop', 'open', 'close', 'hello', 'flay', 'robot_fly', 'please_fly',
              'verb', 'wake', 'rope', 'music', 'negative', 'butterfly')
     clips = {name: _recording(fixtures/(name+'.wav')) for name in names}
@@ -118,6 +118,19 @@ def check_recordings(commands, model, fixtures):
         ('pause inside command', clips['verb']+array('h', [0])*14400+clips['wake'], 16000, ['fly']),
         ('background alone', quiet(array('h', [0])*32000), 16000, []),
     ]
+    if cry_test:
+        rump = _recording(fixtures/'rump.wav')
+        cry = _recording(fixtures/'cry.wav')
+        cases += [
+            ('rump jumps', rump, 16000, ['jump']),
+            ('quiet rump', quiet(rump), 48000, ['jump']),
+            ('cry', cry, 16000, ['cry']),
+            ('quiet cry', quiet(cry), 44100, ['cry']),
+            ('cry then fly', cry+array('h', [0])*3200+clips['fly'], 16000, ['cry', 'fly']),
+            ('rump then cry', rump+array('h', [0])*3000+cry, 16000, ['jump', 'cry']),
+            ('unaddressed cry', _recording(fixtures/'cry_alone.wav'), 16000, []),
+            ('negated cry', _recording(fixtures/'not_cry.wav'), 16000, []),
+        ]
     for name, samples, rate, expected in cases:
         actions, heard = _decode(commands, model, samples, rate)
         assert [action for action, at in actions] == expected, (name, expected, actions, heard)
