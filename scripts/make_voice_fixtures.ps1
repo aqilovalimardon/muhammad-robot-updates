@@ -23,6 +23,10 @@ try {
         $phrases['cry'] = 'cry robot'
         $phrases['cry_alone'] = 'cry'
         $phrases['not_cry'] = 'do not cry robot'
+        $phrases['dance'] = 'dance robot'
+        $phrases['dans'] = 'dans robot'
+        $phrases['dance_alone'] = 'dance'
+        $phrases['not_dance'] = 'do not dance robot'
     }
     foreach ($command in $phrases.Keys) {
         $path = Join-Path $PWD "voice-fixtures/$command.wav"

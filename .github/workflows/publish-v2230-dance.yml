@@ -1,12 +1,12 @@
-name: Validate and publish v2.2.29 Jump and mouse-shake crying
+name: Validate and publish v2.2.30 whistling dance
 on:
   push:
-    branches: [main, feature/jump-and-shake]
+    branches: [main, feature/whistling-dance]
     paths:
       - 'robot3d/**'
       - 'runtime/robot_app.py'
       - 'runtime/voice_commands.py'
-      - 'scripts/build_v2229_shake.py'
+      - 'scripts/build_v2230_dance.py'
       - 'scripts/build_v2223_plush.py'
       - 'scripts/test_v2223_plush.py'
       - 'scripts/test_v2222_popup.py'
@@ -14,12 +14,12 @@ on:
       - 'scripts/test_v2221_windows_voice.py'
       - 'scripts/test_v2227_commands.py'
       - 'scripts/make_voice_fixtures.ps1'
-      - '.github/workflows/publish-v2229-shake.yml'
+      - '.github/workflows/publish-v2230-dance.yml'
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: motion-v2229-${{ github.ref }}
+  group: motion-v2230-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   build:
@@ -44,6 +44,7 @@ jobs:
           grep -q 'PASS: real scene emotions' /tmp/interaction.log
           grep -q 'PASS: local fur stretch' /tmp/interaction.log
           grep -q 'PASS: voice Cry animates two falling tears' /tmp/interaction.log
+          grep -q 'PASS: Dance alternates feet and arms' /tmp/interaction.log
           mkdir -p dist review
           "$GODOT" --headless --path robot3d --export-pack 'Windows Desktop' "$GITHUB_WORKSPACE/dist/MuhammadRobot3D.pck" 2>&1 | tee /tmp/export.log
           if grep -E 'SCRIPT ERROR|Parse Error|ERROR:' /tmp/import.log /tmp/interaction.log /tmp/export.log; then exit 1; fi
@@ -62,6 +63,7 @@ jobs:
           test -s review/open.wav
           test -s review/cry.png
           test -s review/cry.wav
+          test -s review/dance.wav
           test -s review/sad.png
           test -s review/fur_tug.png
           test -s review/sad.wav
@@ -77,6 +79,9 @@ jobs:
           test -s review/flight.png
           grep -q 'PASS: a held mouse shake shows two blue tears' /tmp/motion.log
           test -s review/shake_cry.png
+          grep -q 'PASS: Dance alternates feet and arms' /tmp/motion.log
+          test -s review/dance_left.png
+          test -s review/dance_right.png
           test -s review/jump.png
       - name: Build exact versioned ZIP and verify existing host behavior
         env:
@@ -84,19 +89,19 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p baseline
-          gh release download v2.2.28 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.28.zip' --dir baseline
-          python3 scripts/build_v2229_shake.py baseline/MuhammadRobot-2.2.28.zip dist/MuhammadRobot3D.pck dist/MuhammadRobot-2.2.29.zip
-          xvfb-run -a /usr/bin/python3 scripts/test_v2223_plush.py baseline/MuhammadRobot-2.2.28.zip dist/MuhammadRobot-2.2.29.zip --motion --ui --godot /tmp/Godot_v4.7.2-stable_linux.x86_64
+          gh release download v2.2.29 --repo "$GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.29.zip' --dir baseline
+          python3 scripts/build_v2230_dance.py baseline/MuhammadRobot-2.2.29.zip dist/MuhammadRobot3D.pck dist/MuhammadRobot-2.2.30.zip
+          xvfb-run -a /usr/bin/python3 scripts/test_v2223_plush.py baseline/MuhammadRobot-2.2.29.zip dist/MuhammadRobot-2.2.30.zip --motion --ui --godot /tmp/Godot_v4.7.2-stable_linux.x86_64
       - uses: actions/upload-artifact@v4
         with:
-          name: robot-v2229-package
+          name: robot-v2230-package
           path: |
-            dist/MuhammadRobot-2.2.29.zip
+            dist/MuhammadRobot-2.2.30.zip
             dist/manifest.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: robot-v2229-review
+          name: robot-v2230-review
           path: |
             review/
             /tmp/import.log
@@ -116,13 +121,13 @@ jobs:
           python-version: '3.11'
       - uses: actions/download-artifact@v4
         with:
-          name: robot-v2229-package
+          name: robot-v2230-package
           path: package
       - name: Run exported Windows EXE with actual packaged interaction tests
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          Expand-Archive -LiteralPath 'package/MuhammadRobot-2.2.29.zip' -DestinationPath 'installed'
+          Expand-Archive -LiteralPath 'package/MuhammadRobot-2.2.30.zip' -DestinationPath 'installed'
           $exe=(Resolve-Path 'installed/app/visual3d/MuhammadRobot3D.exe').Path
           $log=Join-Path $PWD 'windows-interaction.log'
           $p=Start-Process -FilePath $exe -ArgumentList '--headless','--log-file',"`"$log`"",'--','--interaction-test' -PassThru -NoNewWindow
@@ -130,7 +135,7 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "Windows test failed: $($p.ExitCode)" }
           $text=Get-Content -Raw $log
           Write-Output $text
-          if ($text -notmatch 'PASS: real scene emotions' -or $text -notmatch 'PASS: Hello hand wave' -or $text -notmatch 'PASS: local fur stretch' -or $text -notmatch 'PASS: voice Cry animates two falling tears' -or $text -match 'SCRIPT ERROR|Parse Error|ERROR:') { throw 'Windows interaction assertions did not pass' }
+          if ($text -notmatch 'PASS: real scene emotions' -or $text -notmatch 'PASS: Hello hand wave' -or $text -notmatch 'PASS: local fur stretch' -or $text -notmatch 'PASS: voice Cry animates two falling tears' -or $text -notmatch 'PASS: Dance alternates feet and arms' -or $text -match 'SCRIPT ERROR|Parse Error|ERROR:') { throw 'Windows interaction assertions did not pass' }
       - name: Render the native Windows avatar and click-through trail
         shell: pwsh
         env:
@@ -150,8 +155,8 @@ jobs:
           }
           $result = Get-Content -Raw $log
           Write-Output $result
-          if ($p.ExitCode -ne 0 -or $result -notmatch 'PASS: Hello hand wave' -or $result -notmatch 'PASS: articulated wave, layered light ribbons and lingering afterglow' -or $result -notmatch 'PASS: rendered flight fan spans' -or $result -notmatch 'PASS: both blue tears are visible' -or $result -notmatch 'PASS: a held mouse shake shows two blue tears' -or $result -match 'SCRIPT ERROR|Parse Error|ERROR:') { throw 'Native Windows motion failed' }
-          foreach ($frame in 'hello','hello_in','hello_out','flight','jump','cry','shake_cry') {
+          if ($p.ExitCode -ne 0 -or $result -notmatch 'PASS: Hello hand wave' -or $result -notmatch 'PASS: articulated wave, layered light ribbons and lingering afterglow' -or $result -notmatch 'PASS: rendered flight fan spans' -or $result -notmatch 'PASS: both blue tears are visible' -or $result -notmatch 'PASS: a held mouse shake shows two blue tears' -or $result -notmatch 'PASS: Dance alternates feet and arms' -or $result -match 'SCRIPT ERROR|Parse Error|ERROR:') { throw 'Native Windows motion failed' }
+          foreach ($frame in 'hello','hello_in','hello_out','flight','jump','cry','shake_cry','dance_left','dance_right') {
             if (-not (Test-Path "$env:ROBOT_REVIEW_DIR/$frame.png")) { throw "Missing rendered $frame frame" }
           }
       - name: Upgrade user settings, launch the 3D host, open Studio and test the shared menu
@@ -163,11 +168,11 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           New-Item -ItemType Directory -Force baseline | Out-Null
-          gh release download v2.2.28 --repo "$env:GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.28.zip' --dir baseline
+          gh release download v2.2.29 --repo "$env:GITHUB_REPOSITORY" --pattern 'MuhammadRobot-2.2.29.zip' --dir baseline
           if ($LASTEXITCODE -ne 0) { throw 'Baseline download failed' }
           python -m pip install --disable-pip-version-check pillow
           if ($LASTEXITCODE -ne 0) { throw 'Screenshot dependency failed' }
-          python scripts/test_v2223_plush.py baseline/MuhammadRobot-2.2.28.zip package/MuhammadRobot-2.2.29.zip --motion --ui
+          python scripts/test_v2223_plush.py baseline/MuhammadRobot-2.2.29.zip package/MuhammadRobot-2.2.30.zip --motion --ui
           if ($LASTEXITCODE -ne 0) { throw 'Native context menu check failed' }
       - name: Generate actual offline Windows voice samples
         if: ${{ !cancelled() }}
@@ -181,12 +186,12 @@ jobs:
           $ErrorActionPreference='Stop'
           python -m pip install --disable-pip-version-check vosk==0.3.45
           if ($LASTEXITCODE -ne 0) { throw 'Test recognizer install failed' }
-          python scripts/test_v2221_windows_voice.py package/MuhammadRobot-2.2.29.zip voice-fixtures --menu-open --motion --varied-input --cry-test
+          python scripts/test_v2221_windows_voice.py package/MuhammadRobot-2.2.30.zip voice-fixtures --menu-open --motion --varied-input --cry-test --dance-test
           if ($LASTEXITCODE -ne 0) { throw 'Actual voice integration failed' }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: robot-v2229-windows-log
+          name: robot-v2230-windows-log
           path: |
             windows-interaction.log
             windows-native-motion.log
@@ -205,17 +210,17 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: robot-v2229-package
+          name: robot-v2230-package
           path: package
       - name: Publish immutable update after Linux and Windows checks
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if gh release view v2.2.29 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          if gh release view v2.2.30 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo 'Existing release retained'; exit 0
           fi
-          gh release create v2.2.29 package/MuhammadRobot-2.2.29.zip package/manifest.json \
+          gh release create v2.2.30 package/MuhammadRobot-2.2.30.zip package/manifest.json \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest \
-            --title 'Muhammad Robot v2.2.29 - Jump and mouse-shake crying' \
-            --notes 'Say Jump robot for one jump. Hold the robot with the left mouse button and shake it back and forth to see its eyes spin and tears roll as it softly sobs. It keeps crying briefly after release. Cry robot, Stop robot, gentle fur pulling and the saved sound setting still work.'
+            --title 'Muhammad Robot v2.2.30 - whistling dance' \
+            --notes 'Say Dans robot or Dance robot to start a short dance. The robot whistles an original tune and alternates foot taps with arm swings. Stop robot stops both the steps and the whistle. The dance also works with 3D effect sounds turned off.'

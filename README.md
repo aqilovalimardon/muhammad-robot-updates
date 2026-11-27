@@ -1,6 +1,10 @@
 # muhammad-robot-updates
 Automatic updates for Muhammad's desktop robot
 
+## v2.2.30 — a whistling dance
+
+Say **Dans robot** or **Dance robot**. The robot puckers its lips, whistles an original tune and dances in place, tapping alternate feet and swinging its arms in time. The routine lasts about five and a half seconds. **Stop robot** ends both the steps and the whistle immediately. With **3D effect sounds** off, the robot dances silently.
+
 ## v2.2.29 — Jump and mouse shaking
 
 Say **Jump robot** for one hop. Hold down the left mouse button on the robot and shake it back and forth a couple of times. Its eyes briefly spin, tears roll down its cheeks and it gives three soft sobs. Releasing the mouse lets it finish crying. **Stop robot** calms it immediately. **Cry robot** still works by voice.

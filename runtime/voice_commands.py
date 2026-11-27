@@ -105,6 +105,7 @@ def setup(root:Path, inform=lambda text:None) -> None:
 # commands from the same table are eligible for dispatch.
 VERBS = {
     'fly': ('fly', 'flay'), 'stop': ('stop',), 'jump': ('jump',), 'cry': ('cry',),
+    'dance': ('dance', 'dans'),
     'open': ('open', 'show'), 'close': ('close', 'hide'), 'hello': ('hello', 'hi'),
 }
 PHRASES = {'hey robot': 'hello'}

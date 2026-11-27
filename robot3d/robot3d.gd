@@ -302,12 +302,13 @@ func _character():
         _rod(smile,"Smile"+str(i),Vector3(x1,-0.255+3.1*x1*x1,0.655),
              Vector3(x2,-0.255+3.1*x2*x2,0.655),0.012,mouth_mat)
     surprised_mouth=Node3D.new()
+    surprised_mouth.position=Vector3(0,-0.235,0.66)
     head.add_child(surprised_mouth)
     for i in range(16):
         var a=TAU*i/16.0
         var b=TAU*(i+1)/16.0
-        _rod(surprised_mouth,"Oh"+str(i),Vector3(cos(a)*0.036,-0.235+sin(a)*0.042,0.66),
-             Vector3(cos(b)*0.036,-0.235+sin(b)*0.042,0.66),0.009,mouth_mat)
+        _rod(surprised_mouth,"Oh"+str(i),Vector3(cos(a)*0.036,sin(a)*0.042,0),
+             Vector3(cos(b)*0.036,sin(b)*0.042,0),0.009,mouth_mat)
     smile.visible=false
     surprised_mouth.visible=false
     _expressive_face(mouth_mat)
@@ -616,8 +617,9 @@ func _handle_host_command(data: String):
         _set_emotion("excited",1.2)
     elif data=="stop":
         _stop_motion()
-        if emotion=="cry":_set_emotion("idle",0.0)
+        if emotion in ["cry","dance"]:_set_emotion("idle",0.0)
     elif not hidden and not dragging:
+        if emotion=="dance" and data in ["fly","jump"]:_set_emotion("idle",0.0)
         match data:
             "wave":
                 motion.wave()
@@ -630,6 +632,12 @@ func _handle_host_command(data: String):
                 motion.jump(get_window().position,_motion_limits())
             "cry":
                 _start_cry()
+            "dance":
+                if emotion!="dance":
+                    menu.visible=false
+                    _stop_motion()
+                    _set_emotion("dance",Feedback.DANCE_SECONDS)
+                    feedback.play_cue("dance")
 
 func _work_area() -> Rect2i:
     var window := get_window()
@@ -750,6 +758,7 @@ func _process(delta:float):
     fur_pull.advance(delta)
     _advance_soft_body(delta)
     _apply_motion_pose()
+    if emotion=="dance":_apply_dance_pose(Feedback.DANCE_SECONDS-emotion_left)
     antenna_glow.update_glow(t,emotion,delta)
     var camera=get_viewport().get_camera_3d()
     _update_flight_trail(delta,camera)
@@ -831,6 +840,38 @@ func _advance_soft_body(delta:float):
     antenna.rotation.z=0.28*sin(t*3.4)+0.035*sin(t*5.7)-head_lag.x*2.5-sad_weight*0.50+laugh_weight*0.16*jiggle
     antenna.rotation.x=0.10*sin(t*2.7)+head_lag.y*1.8
 
+func _apply_dance_pose(seconds: float):
+    var beat := seconds/Feedback.DANCE_BEAT
+    var weight := smoothstep(0.0,0.45,beat)*(1.0-smoothstep(11.15,12.0,beat))
+    var step := sin(PI*beat)
+    var left_lift := maxf(0.0,step)*weight
+    var right_lift := maxf(0.0,-step)*weight
+    var sway := 0.19*step*weight
+    var bounce := 0.075*step*step*weight
+    var twist := sin(PI*(beat-0.16))*weight
+    var accent := smoothstep(3.7,4.4,beat)*(1.0-smoothstep(7.4,8.1,beat))
+    var finish := smoothstep(9.6,10.4,beat)
+    # Shift onto the planted foot. The free foot taps outward and a little forward.
+    robot.position+=Vector3(sway,bounce,0.0)
+    robot.rotation.z-=0.17*step*weight
+    flight_pose.rotate_object_local(Vector3.UP,(0.18+0.19*accent)*twist)
+    head.rotation.z+=0.20*twist
+    head.position.y+=0.035*sin(TAU*beat-0.5)*weight
+    antenna.rotation.z-=0.28*twist
+    left_foot.position+=Vector3(-sway*(1.0-left_lift)-0.13*left_lift,0.25*left_lift-bounce,0.17*left_lift)
+    right_foot.position+=Vector3(-sway*(1.0-right_lift)+0.13*right_lift,0.25*right_lift-bounce,0.17*right_lift)
+    left_foot.rotation.z+=0.38*left_lift
+    right_foot.rotation.z-=0.38*right_lift
+    var open := (0.20+0.24*accent+0.53*finish)*weight
+    _dance_arm(left_hand,-1.0,open+1.40*right_lift)
+    _dance_arm(right_hand,1.0,open+1.40*left_lift)
+
+func _dance_arm(hand: MeshInstance3D, side: float, angle: float):
+    var shoulder := Vector3(side*WAVE_SHOULDER.x,WAVE_SHOULDER.y,WAVE_SHOULDER.z)
+    hand.position=shoulder+(hand.position-shoulder).rotated(Vector3.BACK,side*angle)
+    hand.position.z+=0.085*sin(angle)
+    hand.rotation.z+=side*angle
+
 func _start_cry(from_shake := false):
     if emotion=="cry":return
     cried_from_shake=from_shake
@@ -839,7 +880,7 @@ func _start_cry(from_shake := false):
 
 func _set_emotion(value:String,duration:float):
     if value=="cry" and emotion!="cry":cry_elapsed=0.0
-    if emotion=="cry" and value!="cry":feedback.stop_cry()
+    if emotion!=value and emotion in ["cry","dance"]:feedback.stop_cue(emotion)
     if value=="laugh" and emotion!="laugh":laugh_time=0.0
     emotion=value
     emotion_left=duration
@@ -867,6 +908,7 @@ func _update_emotion(delta:float):
             _set_emotion("love",1.5)
         if emotion_left<=0.0:emotion="happy"
     elif emotion_left<=0.0:
+        if emotion=="dance":feedback.stop_cue("dance")
         emotion="idle"
         if not hidden:
             idle_elapsed+=delta
@@ -881,6 +923,7 @@ func _update_emotion(delta:float):
     elif emotion=="angry":eye_scale=Vector3(1.04,0.52,1.0)
     elif emotion=="sad":eye_scale=Vector3(0.91,0.82,1.0)
     elif emotion=="cry":eye_scale=Vector3(0.96,0.77-0.34*Feedback.sob_strength(cry_elapsed),1.0)
+    elif emotion=="dance":eye_scale=Vector3(1.05,0.82,1.0)
     var show_spirals := emotion=="dizzy" or (emotion=="cry" and cried_from_shake and cry_elapsed<0.8)
     for i in range(pupils.size()):
         var target_scale=eye_scale
@@ -899,7 +942,14 @@ func _update_emotion(delta:float):
         pupils[i].rotation.z=lerpf(pupils[i].rotation.z,
             tilt if emotion in ["happy","excited","angry","sad","cry"] else 0.0,minf(1.0,delta*12.0))
     smile.visible=emotion in ["happy","excited","wink","love"]
-    surprised_mouth.visible=emotion=="surprised"
+    surprised_mouth.visible=emotion in ["surprised","dance"]
+    if emotion=="dance":
+        var breath := Feedback.whistle_strength(Feedback.DANCE_SECONDS-emotion_left)
+        surprised_mouth.position.x=0.026
+        surprised_mouth.scale=Vector3(1.2+0.42*breath,0.78+0.48*breath,1.0)
+    elif surprised_mouth.visible:
+        surprised_mouth.position.x=0.0
+        surprised_mouth.scale=Vector3.ONE
     laugh_mouth.visible=emotion=="laugh"
     laugh_mouth.scale.y=1.0+0.10*sin(t*18.0) if emotion=="laugh" else 1.0
     angry_face.visible=emotion=="angry"

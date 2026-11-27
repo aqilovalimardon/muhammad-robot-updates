@@ -23,16 +23,17 @@ from test_v2222_popup import popup_checks, pump
 def upgrade(baseline, archive, root, motion=False):
     previous = baseline.stem.removeprefix('MuhammadRobot-')
     versions = {'2.2.23': '2.2.24', '2.2.24': '2.2.25', '2.2.25': '2.2.26',
-                '2.2.26': '2.2.27', '2.2.27': '2.2.28', '2.2.28': '2.2.29'} if motion else {'2.2.22': VERSION}
+                '2.2.26': '2.2.27', '2.2.27': '2.2.28', '2.2.28': '2.2.29',
+                '2.2.29': '2.2.30'} if motion else {'2.2.22': VERSION}
     version = versions[previous]
     manifest = json.loads((archive.parent / 'manifest.json').read_text())
     assert manifest['version'] == version and manifest['zip'] == archive.name
     with zipfile.ZipFile(baseline) as old, zipfile.ZipFile(archive) as new:
         assert new.testzip() is None and set(new.namelist()) == FILES
         changed = {CORE, PACK}
-        if version in ('2.2.23', '2.2.24', '2.2.27', '2.2.28', '2.2.29'):
+        if version in ('2.2.23', '2.2.24', '2.2.27', '2.2.28', '2.2.29', '2.2.30'):
             changed.add(APP)
-        if version in ('2.2.24', '2.2.27', '2.2.28', '2.2.29'):
+        if version in ('2.2.24', '2.2.27', '2.2.28', '2.2.29', '2.2.30'):
             voice = 'app/voice_commands.py'
             assert new.read(voice) != old.read(voice)
             source = Path(__file__).resolve().parents[1] / 'runtime/voice_commands.py'

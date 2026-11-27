@@ -563,8 +563,76 @@ func motion_checks(r):
         if not failed:print("PASS: articulated wave, layered light ribbons and lingering afterglow on the native desktop")
         await _render_cry(r)
         await _render_cry(r,true)
+    await _dance_checks(r,native)
     r.feedback.enabled = sound_enabled
     if not failed:print("PASS: Hello hand wave, bounded desktop flight, trail, immediate stop, single jump and manual control")
+
+func _dance_checks(r,native: bool):
+    var cues: Array[String]=[]
+    var remember:=func(cue):cues.append(cue)
+    r.feedback.cue_played.connect(remember)
+    r.feedback.enabled=true
+    r._cancel_hold()
+    var beat:float=r.feedback.DANCE_BEAT
+    var sound:AudioStreamWAV=r.feedback.sounds["dance"]
+    var pcm:=sound.data
+    check(absf(sound.get_length()-r.feedback.DANCE_SECONDS)<0.001,"the whistle and choreography have the same duration")
+    for note:Vector3 in r.feedback.WHISTLE_NOTES:
+        var first:=roundi((note.x*beat+0.031)*sound.mix_rate)
+        var length:=roundi(0.038*sound.mix_rate)
+        var rises:=0
+        var peak:=0
+        for frame in range(first,first+length):
+            var sample:=pcm.decode_s16(frame*2)
+            peak=maxi(peak,absi(sample))
+            if sample>0 and pcm.decode_s16((frame-1)*2)<=0:rises+=1
+        var pitch:=440.0*pow(2.0,(note.z-69.0)/12.0)
+        check(absf(float(rises)*sound.mix_rate/length-pitch)<pitch*0.085 and peak>3000 and peak<13000,"each whistled note has the scored pitch and a gentle level")
+    check(pcm.decode_s16(2*roundi(3.85*beat*sound.mix_rate))==0,"the whistle takes a breath between phrases")
+    var origin:Vector2i=r.get_window().position
+    r._handle_host_command("dance")
+    for i in 4:r._process(beat/8.0)
+    check(r.emotion=="dance" and r.left_foot.position.y>r.right_foot.position.y+0.20 and r.right_hand.position.y>r.left_hand.position.y+0.14 and r.robot.position.x>0.13,"weight shifts over the standing foot while the opposite arm swings")
+    check(r.feedback.player.stream==sound and r.feedback.player.playing and r.surprised_mouth.visible and r.surprised_mouth.scale.x>1.25,"the robot puckers its lips and plays its own whistle")
+    if native:
+        await RenderingServer.frame_post_draw
+        _review_frame(r,"dance_left")
+    var remaining:float=r.emotion_left
+    r._handle_host_command("dance")
+    check(r.emotion_left==remaining and cues.count("dance")==1,"repeating Dance preserves the beat and whistle")
+    for i in 8:r._process(beat/8.0)
+    check(r.emotion=="dance" and r.right_foot.position.y>r.left_foot.position.y+0.20 and r.left_hand.position.y>r.right_hand.position.y+0.14 and r.robot.position.x < -0.13,"the next beat swaps the tapping foot and swinging arm")
+    if native:
+        await RenderingServer.frame_post_draw
+        _review_frame(r,"dance_right")
+    r._handle_host_command("stop")
+    r._process(0.03)
+    check(r.emotion=="idle" and not r.feedback.player.playing and not r.surprised_mouth.visible and r.get_window().position==origin,"Stop ends the dance and whistle in place")
+    r._handle_host_command("dance")
+    r._begin_hold(Vector2i(100,100))
+    check(r.dragging and r.emotion=="surprised" and not (r.feedback.player.playing and r.feedback.player.stream==sound),"a grab takes over the dance immediately")
+    r._cancel_hold()
+    r._handle_host_command("dance")
+    r._handle_host_command("fly")
+    check(r.motion.flying and r.emotion!="dance" and not r.feedback.player.playing,"Fly takes over immediately")
+    r._handle_host_command("dance")
+    check(not r.motion.flying and r.emotion=="dance","Dance starts in place during flight")
+    r._handle_host_command("cry")
+    check(r.emotion=="cry" and r.feedback.player.stream==r.feedback.sounds["cry"],"Cry replaces both the whistle and dance")
+    r._hide()
+    r._handle_host_command("dance")
+    check(r.hidden and r.emotion!="dance","the closed orb ignores Dance")
+    r._show()
+    r.feedback.player.stop()
+    r.feedback.enabled=false
+    var heard:=cues.count("dance")
+    r._handle_host_command("dance")
+    for i in 12:r._process(beat/8.0)
+    check(r.emotion=="dance" and r.right_foot.position.y>r.left_foot.position.y+0.20 and cues.count("dance")==heard,"a muted robot still dances")
+    for i in 100:r._process(beat/8.0)
+    check(r.emotion=="idle" and absf(r.left_foot.position.y-r.right_foot.position.y)<0.01 and not r.surprised_mouth.visible,"the final note settles into the normal pose")
+    r.feedback.cue_played.disconnect(remember)
+    if not failed:print("PASS: Dance alternates feet and arms to the whistled score and respects Stop, mute and other commands")
 
 func _wave_checks(r):
     r._cancel_hold()

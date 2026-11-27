@@ -102,7 +102,7 @@ def _check_microphone(commands, model, fixtures, quiet_fly):
     print('PASS: quiet headset input passed the real capture callback, 8 kHz resampling and offline decoder; speaker echo was ignored')
 
 
-def check_recordings(commands, model, fixtures, cry_test=False):
+def check_recordings(commands, model, fixtures, cry_test=False, dance_test=False):
     names = ('fly', 'jump', 'stop', 'open', 'close', 'hello', 'flay', 'robot_fly', 'please_fly',
              'verb', 'wake', 'rope', 'music', 'negative', 'butterfly')
     clips = {name: _recording(fixtures/(name+'.wav')) for name in names}
@@ -132,6 +132,19 @@ def check_recordings(commands, model, fixtures, cry_test=False):
             ('jump then cry', clips['jump']+array('h', [0])*3000+cry, 16000, ['jump', 'cry']),
             ('unaddressed cry', _recording(fixtures/'cry_alone.wav'), 16000, []),
             ('negated cry', _recording(fixtures/'not_cry.wav'), 16000, []),
+        ]
+    if dance_test:
+        dance = _recording(fixtures/'dance.wav')
+        dans = _recording(fixtures/'dans.wav')
+        assert all(commands.normalize_command(text)=='dance' for text in ('Dance robot','DANS robot!','robot dance'))
+        cases += [
+            ('dance', dance, 16000, ['dance']),
+            ('dans', dans, 16000, ['dance']),
+            ('quiet dance', quiet(dance), 44100, ['dance']),
+            ('quiet dans', quiet(dans), 48000, ['dance']),
+            ('dance then stop', dance+array('h',[0])*3200+clips['stop'], 16000, ['dance','stop']),
+            ('unaddressed dance', _recording(fixtures/'dance_alone.wav'), 16000, []),
+            ('negated dance', _recording(fixtures/'not_dance.wav'), 16000, []),
         ]
     for name, samples, rate, expected in cases:
         actions, heard = _decode(commands, model, samples, rate)

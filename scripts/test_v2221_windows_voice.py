@@ -69,7 +69,7 @@ def check_native_speech(native):
     finally:release(stream)
 
 
-def main(archive, fixtures, with_menu=False, motion=False, varied_input=False, cry_test=False):
+def main(archive, fixtures, with_menu=False, motion=False, varied_input=False, cry_test=False, dance_test=False):
     archive,fixtures=Path(archive).resolve(),Path(fixtures).resolve()
     commands=load_commands(archive)
     import vosk
@@ -86,7 +86,7 @@ def main(archive, fixtures, with_menu=False, motion=False, varied_input=False, c
         model=vosk.Model(str(folder/commands.MODEL_FOLDER))
         if varied_input:
             from test_v2227_commands import check_recordings
-            check_recordings(commands, model, fixtures, cry_test)
+            check_recordings(commands, model, fixtures, cry_test, dance_test)
         with zipfile.ZipFile(archive) as z:
             z.extractall(folder/'installed')
             source=z.read('app/robot_app.py').decode('utf-8')
@@ -113,11 +113,13 @@ def main(archive, fixtures, with_menu=False, motion=False, varied_input=False, c
                   '--voice-integration-test','--voice-ack',str(ack)]
             if motion:args.append('--voice-motion-test')
             if cry_test:args.append('--voice-cry-test')
+            if dance_test:args.append('--voice-dance-test')
             process=subprocess.Popen(args,cwd=exe.parent,stdout=output,stderr=subprocess.STDOUT)
             try:
                 wait_for(ack,'ready',process)
                 sequence=('hello','fly','stop','jump','close','open') if motion else ('hello','close','open')
                 if cry_test:sequence=('hello','fly','stop','cry','close','open','jump')
+                if dance_test:sequence=('hello','fly','dance','stop','cry','close','open','jump','dans')
                 for command in sequence:
                     if with_menu:
                         host._show_shared_menu()
@@ -139,9 +141,10 @@ def main(archive, fixtures, with_menu=False, motion=False, varied_input=False, c
                     if pending:host.listener.events.put(('command',pending))
                     if not with_menu:host._poll_mic_events()
                     wait_for(ack,command,process,host.root.update if with_menu else None)
-                    assert host.mic_last_command==command,(command,host.mic_last_heard)
+                    expected='dance' if command=='dans' else command
+                    assert host.mic_last_command==expected,(command,host.mic_last_heard)
                     if with_menu:
-                        if command in ('open','close','fly','stop','jump','cry'):assert host._shared_popup is None
+                        if expected in ('open','close','fly','stop','jump','cry','dance'):assert host._shared_popup is None
                         host._dismiss_shared_menu()
                 assert process.wait(timeout=10)==0
                 assert spoken==['Hello, Muhammad! Let us code together!']
@@ -157,6 +160,7 @@ def main(archive, fixtures, with_menu=False, motion=False, varied_input=False, c
         assert 'PASS: recorded Hello/Close/Open' in log.read_text(encoding='utf-8')
         if motion:assert 'PASS: six recognized commands' in log.read_text(encoding='utf-8')
         if cry_test:assert 'PASS: recognized Cry shed tears and Jump triggered a fresh jump' in log.read_text(encoding='utf-8')
+        if dance_test:assert 'PASS: spoken Dance and Dans each started a fresh whistling dance' in log.read_text(encoding='utf-8')
     print('PASS: real Windows SAPI + Vosk audio recognition + host event dispatch + exported 3D Hello/Close/Open')
     if with_menu:print('PASS: real recognized audio drives 3D Close/Open while the shared popup is open and Tk timers run')
 
@@ -170,5 +174,6 @@ if __name__=='__main__':
     parser.add_argument('--motion',action='store_true')
     parser.add_argument('--varied-input',action='store_true')
     parser.add_argument('--cry-test',action='store_true')
+    parser.add_argument('--dance-test',action='store_true')
     options=parser.parse_args()
-    main(options.archive,options.fixtures,options.menu_open,options.motion,options.varied_input,options.cry_test)
+    main(options.archive,options.fixtures,options.menu_open,options.motion,options.varied_input,options.cry_test,options.dance_test)

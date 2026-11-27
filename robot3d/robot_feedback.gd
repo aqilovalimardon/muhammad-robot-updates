@@ -7,6 +7,17 @@ const PREFERENCES = "user://feedback.cfg"
 const SOB_PERIOD := 0.86
 const SOB_LENGTH := 0.62
 const CRY_AUDIO_SECONDS := 2.0*SOB_PERIOD + SOB_LENGTH
+const DANCE_BEAT := 0.46
+const DANCE_SECONDS := 12.0*DANCE_BEAT
+# Original three-bar whistle. Each entry gives its onset and length in beats, then its MIDI pitch.
+const WHISTLE_NOTES := [
+    Vector3(0.13,0.43,79), Vector3(0.75,0.19,81), Vector3(1.0,0.72,83),
+    Vector3(2.0,0.35,86), Vector3(2.5,0.36,83), Vector3(3.0,0.61,81),
+    Vector3(4.0,0.49,79), Vector3(4.75,0.20,83), Vector3(5.0,0.73,86),
+    Vector3(6.0,0.49,88), Vector3(6.75,0.18,86), Vector3(7.0,0.59,83),
+    Vector3(8.0,0.70,81), Vector3(9.0,0.32,83), Vector3(9.5,0.34,81),
+    Vector3(10.0,1.43,79),
+]
 var enabled = true
 var sounds: Dictionary = {}
 var player: AudioStreamPlayer
@@ -30,6 +41,7 @@ func _ready():
     sounds["laugh"] = _vocal_sound(false)
     sounds["sad"] = _vocal_sound(true)
     sounds["cry"] = _cry_sound()
+    sounds["dance"] = _whistle_sound()
     sounds["grumpy"] = _make_sound([[330.0, 245.0, 0.16, 0.30], [270.0, 220.0, 0.08, 0.22]])
     var config = ConfigFile.new()
     if config.load(PREFERENCES) == OK:
@@ -107,6 +119,37 @@ func _cry_sound() -> AudioStreamWAV:
         pcm.encode_s16(i*2, roundi(32767.0*0.30*sob_strength(sec)*(voice + 0.13*breath)))
     return _mono_wav(pcm)
 
+static func _whistle_breath(seconds: float, length: float) -> float:
+    return smoothstep(0.0,0.025,seconds)*smoothstep(0.0,minf(0.065,length*0.35),length-seconds)
+
+static func whistle_strength(seconds: float) -> float:
+    for note: Vector3 in WHISTLE_NOTES:
+        var local := seconds-note.x*DANCE_BEAT
+        if local<0.0:return 0.0
+        if local<note.y*DANCE_BEAT:return _whistle_breath(local,note.y*DANCE_BEAT)
+    return 0.0
+
+func _whistle_sound() -> AudioStreamWAV:
+    var pcm := PackedByteArray()
+    pcm.resize(roundi(DANCE_SECONDS*SAMPLE_RATE)*2)
+    var rng := RandomNumberGenerator.new()
+    rng.seed = 2230
+    for note: Vector3 in WHISTLE_NOTES:
+        var onset := roundi(note.x*DANCE_BEAT*SAMPLE_RATE)
+        var length := note.y*DANCE_BEAT
+        var frequency := 440.0*pow(2.0,(note.z-69.0)/12.0)
+        var phase := 0.0
+        var air := 0.0
+        for frame in roundi(length*SAMPLE_RATE):
+            var sec := float(frame)/SAMPLE_RATE
+            var glide := 1.0-0.050*exp(-sec/0.026)
+            var vibrato := 0.006*smoothstep(0.07,0.18,sec)*sin(TAU*5.4*sec)
+            phase += TAU*frequency*(glide+vibrato)/SAMPLE_RATE
+            air = 0.63*air + 0.37*rng.randf_range(-1.0,1.0)
+            var tone := sin(phase)+0.055*sin(2.0*phase)+air*(0.025+0.12*exp(-sec/0.032))
+            pcm.encode_s16((onset+frame)*2,roundi(8500.0*_whistle_breath(sec,length)*tone))
+    return _mono_wav(pcm)
+
 func _mono_wav(pcm: PackedByteArray) -> AudioStreamWAV:
     var stream := AudioStreamWAV.new()
     stream.format = AudioStreamWAV.FORMAT_16_BITS
@@ -117,7 +160,7 @@ func _mono_wav(pcm: PackedByteArray) -> AudioStreamWAV:
 func play_cue(cue: String) -> bool:
     if not enabled or not sounds.has(cue):return false
     var now = Time.get_ticks_msec()
-    var command = cue in ["close","open","cry"]
+    var command = cue in ["close","open","cry","dance"]
     if cue=="grumpy" and now<next_grumpy_ms:return false
     if cue=="sad" and now<next_sad_ms:return false
     if not command and (now < command_until_ms or (now < next_touch_ms and cue not in ["grumpy","sad"])):
@@ -135,8 +178,8 @@ func play_cue(cue: String) -> bool:
     cue_played.emit(cue)
     return true
 
-func stop_cry():
-    if player.stream == sounds["cry"]:
+func stop_cue(cue: String):
+    if player.stream == sounds[cue]:
         player.stop()
         command_until_ms = 0
 
