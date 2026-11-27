@@ -1,9 +1,13 @@
 # muhammad-robot-updates
 Automatic updates for Muhammad's desktop robot
 
-## v2.2.28 — Rump and Cry voice commands
+## v2.2.29 — Jump and mouse shaking
 
-Say **Rump robot** or **Jump robot** for a single jump. Say **Cry robot** to see tears roll down both cheeks. The robot lowers its head and its shoulders move with three quiet sobs. It settles after three seconds. **Stop robot** ends the crying immediately. Turning off **3D effect sounds** keeps the animation silent.
+Say **Jump robot** for one hop. Hold down the left mouse button on the robot and shake it back and forth a couple of times. Its eyes briefly spin, tears roll down its cheeks and it gives three soft sobs. Releasing the mouse lets it finish crying. **Stop robot** calms it immediately. **Cry robot** still works by voice.
+
+## v2.2.28 — crying by voice
+
+Say **Cry robot** to see tears roll down both cheeks. The robot lowers its head and its shoulders move with three quiet sobs. It settles after three seconds. Turning off **3D effect sounds** keeps the animation silent.
 
 ## v2.2.27 — faster offline commands and a wider flight trail
 

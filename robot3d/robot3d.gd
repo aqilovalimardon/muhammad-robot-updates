@@ -94,6 +94,7 @@ var shake_stroke=0.0
 var shake_reversals=0
 var shake_elapsed=0.0
 var shake_gap=0.0
+var cried_from_shake := false
 
 func _ready():
     var w=get_window()
@@ -628,9 +629,7 @@ func _handle_host_command(data: String):
                 menu.visible=false
                 motion.jump(get_window().position,_motion_limits())
             "cry":
-                if emotion!="cry":
-                    _set_emotion("cry",CRY_SECONDS)
-                    feedback.play_cue("cry")
+                _start_cry()
 
 func _work_area() -> Rect2i:
     var window := get_window()
@@ -832,6 +831,12 @@ func _advance_soft_body(delta:float):
     antenna.rotation.z=0.28*sin(t*3.4)+0.035*sin(t*5.7)-head_lag.x*2.5-sad_weight*0.50+laugh_weight*0.16*jiggle
     antenna.rotation.x=0.10*sin(t*2.7)+head_lag.y*1.8
 
+func _start_cry(from_shake := false):
+    if emotion=="cry":return
+    cried_from_shake=from_shake
+    _set_emotion("cry",CRY_SECONDS)
+    feedback.play_cue("cry")
+
 func _set_emotion(value:String,duration:float):
     if value=="cry" and emotion!="cry":cry_elapsed=0.0
     if emotion=="cry" and value!="cry":feedback.stop_cry()
@@ -852,7 +857,7 @@ func _show_next_emotion():
 func _update_emotion(delta:float):
     if emotion=="cry":cry_elapsed+=delta
     emotion_left=maxf(0.0,emotion_left-delta)
-    if fur_pull.pulling:
+    if fur_pull.pulling and emotion!="cry":
         if emotion!="sad":_set_emotion("sad",1.4)
         emotion_left=1.4
     elif dragging:
@@ -876,14 +881,15 @@ func _update_emotion(delta:float):
     elif emotion=="angry":eye_scale=Vector3(1.04,0.52,1.0)
     elif emotion=="sad":eye_scale=Vector3(0.91,0.82,1.0)
     elif emotion=="cry":eye_scale=Vector3(0.96,0.77-0.34*Feedback.sob_strength(cry_elapsed),1.0)
+    var show_spirals := emotion=="dizzy" or (emotion=="cry" and cried_from_shake and cry_elapsed<0.8)
     for i in range(pupils.size()):
         var target_scale=eye_scale
         if emotion=="wink":target_scale=Vector3(1.06,0.13 if i==0 else 1.02,1.0)
         elif emotion=="curious":target_scale=Vector3(1.03,1.10 if i==0 else 0.65,1.0)
-        pupils[i].visible=emotion not in ["love","laugh","dizzy"]
+        pupils[i].visible=not show_spirals and emotion not in ["love","laugh"]
         heart_eyes[i].visible=emotion=="love"
         laugh_eyes[i].visible=emotion=="laugh"
-        dizzy_eyes[i].visible=emotion=="dizzy"
+        dizzy_eyes[i].visible=show_spirals
         dizzy_eyes[i].rotation.z=t*7.0*(1.0 if i==0 else -1.0)
         heart_eyes[i].scale=Vector3.ONE*(1.0+0.05*sin(t*5.0))
         pupils[i].scale=pupils[i].scale.lerp(target_scale,minf(1.0,delta*16.0))
@@ -925,6 +931,7 @@ func _begin_hold(pointer:Vector2i,point:=Vector2.INF):
     _reset_pet()
     _reset_shake()
     shake_last=pointer
+    cried_from_shake=false
     dragging=true
     orb_moved=false
     hold_elapsed=0.0
@@ -940,6 +947,7 @@ func _begin_hold(pointer:Vector2i,point:=Vector2.INF):
 
 func _move_hold(pointer:Vector2i,relative:Vector2):
     if not dragging:return
+    if not hidden and not cried_from_shake:_shake_motion(pointer)
     if fur_pull.armed:
         var already_pulling:bool=fur_pull.pulling
         if fur_pull.move(get_viewport().get_camera_3d(),Vector2(pointer)):
@@ -958,8 +966,7 @@ func _move_hold(pointer:Vector2i,relative:Vector2):
         get_window().position=window_from+diff
         drag_v=clampf(relative.x*0.45,-16.0,16.0)
         drag_force=relative.limit_length(70.0)*0.018
-        _shake_motion(pointer)
-    if relative.length()>14.0 and hold_elapsed>0.15 and not hold_excited and emotion!="dizzy":
+    if relative.length()>14.0 and hold_elapsed>0.15 and not hold_excited and emotion not in ["dizzy","cry"]:
         hold_excited=true
         _set_emotion("excited",0.45)
         feedback.play_cue("excited")
@@ -969,6 +976,9 @@ func _finish_hold(pointer:Vector2i):
     dragging=false
     var was_pulling:bool=fur_pull.pulling
     fur_pull.release()
+    if emotion=="cry":
+        squish_velocity=-1.0
+        return
     if was_pulling:
         _set_emotion("sad",1.4)
         squish_velocity=-0.65
@@ -1025,9 +1035,9 @@ func _advance_shake(delta:float):
 func _shake_motion(pointer:Vector2i):
     # Screen coordinates avoid counting synthetic local motion from window dragging.
     var movement=Vector2(pointer-shake_last)
-    shake_last=pointer
     var distance=movement.length()
     if distance<4.0:return
+    shake_last=pointer
     if distance>240.0:
         _reset_shake()
         return
@@ -1041,8 +1051,8 @@ func _shake_motion(pointer:Vector2i):
     shake_stroke+=distance
     shake_distance+=minf(distance,80.0)
     if shake_reversals>=3 and shake_distance>=160.0:
-        _set_emotion("dizzy",2.4)
-        _reset_shake()
+        tap_count=0
+        _start_cry(true)
 
 func _input(e:InputEvent):
     if menu.visible and e is InputEventMouseButton and e.pressed and not menu.get_global_rect().has_point(e.position):

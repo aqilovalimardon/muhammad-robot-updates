@@ -246,33 +246,55 @@ func run(r):
     for x in [125,150,175,200]:
         r._move_hold(Vector2i(x,100),Vector2(25,0))
         r._advance_shake(0.06)
-    check(r.emotion!="dizzy","ordinary one-way dragging is not shaking")
+    check(r.emotion!="cry","ordinary one-way dragging does not trigger crying")
     r._cancel_hold()
     r._begin_hold(Vector2i(100,100))
     for x in [160,100,160,100]:
         r._move_hold(Vector2i(x,100),Vector2(60,0))
         r._advance_shake(0.4)
-    check(r.emotion!="dizzy","slow direction changes do not cause dizziness")
+    check(r.emotion!="cry","slow direction changes do not trigger crying")
     r._cancel_hold()
     r._begin_hold(Vector2i(100,100))
+    var cries_before := played.count("cry")
     for x in [160,100,160,100]:
         r._move_hold(Vector2i(x,100),Vector2(60,0))
         r._advance_shake(0.06)
-    r._update_emotion(0.01)
-    check(r.emotion=="dizzy" and r.dizzy_eyes[0].visible and r.dizzy_mouth.visible,"deliberate shaking shows two spiral eyes and a wobbly mouth")
+    r._update_emotion(0.4)
+    check(r.emotion=="cry" and r.sad_face.visible and r.cry_tears[1].visible and r.dizzy_eyes[0].visible,
+        "a held shake shows crying and the familiar spiral eyes")
+    check(played.count("cry")==cries_before+1,"a mouse shake plays the same sobs as voice Cry")
     check(not r.pupils[0].visible and not r.laugh_eyes[0].visible,"spirals replace the normal pupils")
     var angle=r.dizzy_eyes[0].rotation.z
     r.t+=0.2
     r._update_emotion(0.01)
     check(absf(r.dizzy_eyes[0].rotation.z-angle)>0.5,"spiral eyes really rotate over time")
+    for x in [160,100,160,100,160,100]:r._move_hold(Vector2i(x,100),Vector2(60,0))
+    var cry_time:float=r.cry_elapsed
     r._finish_hold(Vector2i(100,100))
-    check(r.emotion=="dizzy" and not r.dragging,"dizzy effect continues briefly after release")
-    r._update_emotion(2.5)
-    check(r.emotion=="idle" and not r.dizzy_eyes[0].visible,"dizziness settles automatically")
+    check(r.emotion=="cry" and not r.dragging and r.cry_elapsed==cry_time and played.count("cry")==cries_before+1,
+        "repeated movement and release preserve one crying reaction")
+    r._update_emotion(0.6)
+    check(r.pupils[0].visible and not r.dizzy_eyes[0].visible and r.cry_tears[0].visible,
+        "spirals give way to crying eyes after release")
+    r._update_emotion(2.1)
+    check(r.emotion=="idle" and not r.cry_tears[1].visible,"shake crying settles automatically")
+    r._begin_hold(Vector2i(100,100))
+    var y := 100
+    for target in [144,56,144,56]:
+        var step := 2 if target>y else -2
+        while y!=target:
+            y+=step
+            r._move_hold(Vector2i(100,y),Vector2(0,step))
+        r._advance_shake(0.08)
+    check(r.emotion=="cry" and played.count("cry")==cries_before+2,"a fresh vertical shake works with fine mouse reports")
+    r._handle_host_command("stop")
+    for y_pos in [144,56,144,56]:r._move_hold(Vector2i(100,y_pos),Vector2(0,88))
+    check(r.emotion!="cry" and played.count("cry")==cries_before+2,"Stop silences a shake until the next grab")
+    r._finish_hold(Vector2i(100,56))
     r._hide()
     r._begin_hold(Vector2i(100,100))
     for x in [160,100,160,100]:r._move_hold(Vector2i(x,100),Vector2(60,0))
-    check(r.emotion!="dizzy","closed orb dragging does not animate hidden spirals")
+    check(r.emotion!="cry" and played.count("cry")==cries_before+2,"closed orb dragging stays silent")
     r._cancel_hold()
     r._show()
     r._cancel_hold()
@@ -357,6 +379,11 @@ func _coat_checks(r):
     r._begin_hold(start,cheek)
     r._move_hold(start+Vector2i(-28,0),Vector2(-28,0))
     check(clothes.pulling and r.emotion=="sad" and played.count("sad")==sad_count,"muted tugs remain expressive")
+    var cries_before := played.count("cry")
+    for offset in [32,-32,32,-32]:r._move_hold(start+Vector2i(offset,0),Vector2(60,0))
+    for i in 18:r._process(1.0/30.0)
+    check(clothes.pulling and r.emotion=="cry" and r.cry_tears[1].visible and played.count("cry")==cries_before,
+        "shaking a held tuft keeps its stretch and sheds tears with sound muted")
     r._hide()
     check(not clothes.armed and clothes.selected==null and r.hidden,"close during a pull releases it")
     r._show()
@@ -379,6 +406,7 @@ func _cry_checks(r):
     var count := played.count("cry")
     r._handle_host_command("cry")
     for i in 9:r._process(1.0/30)
+    check(not r.dizzy_eyes[0].visible,"voice Cry uses ordinary crying eyes")
     var first_y: float = r.cry_tears[0].position.y
     var elapsed: float = r.cry_elapsed
     r._handle_host_command("cry")
@@ -534,6 +562,7 @@ func motion_checks(r):
         await _ribbon_checks(r)
         if not failed:print("PASS: articulated wave, layered light ribbons and lingering afterglow on the native desktop")
         await _render_cry(r)
+        await _render_cry(r,true)
     r.feedback.enabled = sound_enabled
     if not failed:print("PASS: Hello hand wave, bounded desktop flight, trail, immediate stop, single jump and manual control")
 
@@ -665,13 +694,28 @@ func _ribbon_checks(r):
     check(empty_gap,"restarting flight leaves separate strokes without a line across the gap")
     layer.clear_trail()
 
-func _render_cry(r):
-    r._handle_host_command("cry")
+func _render_cry(r,shake := false):
+    var camera: Camera3D = r.get_viewport().get_camera_3d()
+    if shake:
+        var press := InputEventMouseButton.new()
+        press.button_index=MOUSE_BUTTON_LEFT
+        press.pressed=true
+        press.position=camera.unproject_position(r.head.to_global(Vector3(0.0,0.0,0.64)))
+        r.get_viewport().push_input(press,true)
+        var origin:Vector2i=r.drag_from
+        var previous:=0
+        for offset in [44,-44,44,-44,0]:
+            r._move_hold(origin+Vector2i(offset,0),Vector2(offset-previous,0))
+            previous=offset
+        press.pressed=false
+        r.get_viewport().push_input(press,true)
+        check(not r.dragging and r.emotion=="cry","shaking and releasing the face reaches the crying animation")
+    else:
+        r._handle_host_command("cry")
     for i in 19:r._process(1.0/30.0)
     await RenderingServer.frame_post_draw
-    _review_frame(r,"cry")
+    _review_frame(r,"shake_cry" if shake else "cry")
     var wet: Image = r.get_viewport().get_texture().get_image()
-    var camera: Camera3D = r.get_viewport().get_camera_3d()
     var cheeks: Array[Vector2i] = []
     for drop in r.cry_tears:
         cheeks.append(Vector2i(camera.unproject_position(drop.global_position)))
@@ -689,7 +733,9 @@ func _render_cry(r):
                     pixels+=1
         check(pixels>=3,"each cheek has a rendered blue tear: "+str(pixels))
     r._handle_host_command("stop")
-    if not failed:print("PASS: both blue tears are visible on the rendered desktop robot")
+    if not failed:
+        if shake:print("PASS: a held mouse shake shows two blue tears after release on the rendered robot")
+        else:print("PASS: both blue tears are visible on the rendered desktop robot")
 
 func _composite_viewport(picture: Image, source: Image, origin: Vector2i):
     # Viewport textures contain premultiplied color as sent to the desktop compositor.

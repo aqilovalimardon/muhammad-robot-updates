@@ -529,7 +529,7 @@ class RobotApp:
         if not self.root.winfo_exists():return
         if messagebox.askyesno('English voice commands',
             'Would you like to enable OFFLINE English voice commands?\n\n'
-            'Say Hello robot, Fly robot, Stop robot, Jump robot (or Rump robot), Cry robot, Open robot or Close robot.\n'
+            'Say Hello robot, Fly robot, Stop robot, Jump robot, Cry robot, Open robot or Close robot.\n'
             'The microphone audio stays on this computer.\n\n'
             'One-time setup downloads about 40 MB for the voice model plus Python libraries.\n'
             'Use only with permission on a school-managed laptop.', parent=self.root):
@@ -592,7 +592,7 @@ class RobotApp:
             f'Last speech heard: {self.mic_last_heard}\n'
             f'Last command: {self.mic_last_command}\n'
             f'Robot speaking now: {"YES" if self.voice.speaking.is_set() else "NO"}\n\n'
-            'Say Hello robot, Fly robot, Stop robot, Jump robot (or Rump robot), Cry robot, Open robot or Close robot.\n'
+            'Say Hello robot, Fly robot, Stop robot, Jump robot, Cry robot, Open robot or Close robot.\n'
             'If the last speech is blank, check microphone input / permissions.\n'
             'The voice model runs locally; speech is not sent to a server.')
 
@@ -702,7 +702,7 @@ class RobotApp:
                     if hasattr(self,'voice_dialog') and self.voice_dialog[0].winfo_exists():self.voice_dialog[0].destroy()
                     if event=='setup_done':
                         self.start_microphone()
-                        messagebox.showinfo('Voice commands','Ready! Say Hello robot, Fly robot, Stop robot, Jump robot (or Rump robot), Cry robot, Open robot or Close robot.',parent=self.root)
+                        messagebox.showinfo('Voice commands','Ready! Say Hello robot, Fly robot, Stop robot, Jump robot, Cry robot, Open robot or Close robot.',parent=self.root)
                     else:messagebox.showerror('Voice setup',value,parent=self.root)
         except queue.Empty:pass
         finally:

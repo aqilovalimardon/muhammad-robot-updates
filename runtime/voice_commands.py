@@ -104,7 +104,7 @@ def setup(root:Path, inform=lambda text:None) -> None:
 # Vosk builds a small word graph from these phrases. Only complete, addressed
 # commands from the same table are eligible for dispatch.
 VERBS = {
-    'fly': ('fly', 'flay'), 'stop': ('stop',), 'jump': ('jump', 'rump'), 'cry': ('cry',),
+    'fly': ('fly', 'flay'), 'stop': ('stop',), 'jump': ('jump',), 'cry': ('cry',),
     'open': ('open', 'show'), 'close': ('close', 'hide'), 'hello': ('hello', 'hi'),
 }
 PHRASES = {'hey robot': 'hello'}
@@ -115,7 +115,7 @@ for action, words in VERBS.items():
             PHRASES[phrase] = action
 # Give the constrained decoder a way to transcribe common competing sounds.
 # These phrases and unknown speech never dispatch commands.
-COMPETING_SPEECH = ['jump rope', 'stop the music', 'open the door', 'close the door',
+COMPETING_SPEECH = ['jump rope', 'rump robot', 'robot rump', 'stop the music', 'open the door', 'close the door',
                     'draw a robot', 'a robot', 'a butterfly', 'do not', "don't", 'never', 'no', '[unk]']
 GRAMMAR = json.dumps([*PHRASES, *COMPETING_SPEECH])
 MAX_PHRASE_WORDS = max(len(phrase.split()) for phrase in PHRASES)

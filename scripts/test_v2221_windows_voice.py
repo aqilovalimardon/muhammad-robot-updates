@@ -117,7 +117,7 @@ def main(archive, fixtures, with_menu=False, motion=False, varied_input=False, c
             try:
                 wait_for(ack,'ready',process)
                 sequence=('hello','fly','stop','jump','close','open') if motion else ('hello','close','open')
-                if cry_test:sequence=('hello','fly','stop','jump','cry','close','open','rump')
+                if cry_test:sequence=('hello','fly','stop','cry','close','open','jump')
                 for command in sequence:
                     if with_menu:
                         host._show_shared_menu()
@@ -139,10 +139,9 @@ def main(archive, fixtures, with_menu=False, motion=False, varied_input=False, c
                     if pending:host.listener.events.put(('command',pending))
                     if not with_menu:host._poll_mic_events()
                     wait_for(ack,command,process,host.root.update if with_menu else None)
-                    expected='jump' if command=='rump' else command
-                    assert host.mic_last_command==expected,(command,host.mic_last_heard)
+                    assert host.mic_last_command==command,(command,host.mic_last_heard)
                     if with_menu:
-                        if expected in ('open','close','fly','stop','jump','cry'):assert host._shared_popup is None
+                        if command in ('open','close','fly','stop','jump','cry'):assert host._shared_popup is None
                         host._dismiss_shared_menu()
                 assert process.wait(timeout=10)==0
                 assert spoken==['Hello, Muhammad! Let us code together!']
@@ -157,7 +156,7 @@ def main(archive, fixtures, with_menu=False, motion=False, varied_input=False, c
         print(log.read_text(encoding='utf-8'))
         assert 'PASS: recorded Hello/Close/Open' in log.read_text(encoding='utf-8')
         if motion:assert 'PASS: six recognized commands' in log.read_text(encoding='utf-8')
-        if cry_test:assert 'PASS: recognized Cry shed tears and Rump triggered a fresh jump' in log.read_text(encoding='utf-8')
+        if cry_test:assert 'PASS: recognized Cry shed tears and Jump triggered a fresh jump' in log.read_text(encoding='utf-8')
     print('PASS: real Windows SAPI + Vosk audio recognition + host event dispatch + exported 3D Hello/Close/Open')
     if with_menu:print('PASS: real recognized audio drives 3D Close/Open while the shared popup is open and Tk timers run')
 

@@ -121,13 +121,15 @@ def check_recordings(commands, model, fixtures, cry_test=False):
     if cry_test:
         rump = _recording(fixtures/'rump.wav')
         cry = _recording(fixtures/'cry.wav')
+        assert commands.normalize_command('Jump robot')=='jump'
+        assert all(commands.normalize_command(phrase) is None for phrase in ('rump robot','robot rump','please rump robot'))
         cases += [
-            ('rump jumps', rump, 16000, ['jump']),
-            ('quiet rump', quiet(rump), 48000, ['jump']),
+            ('obsolete jump alias', rump, 16000, []),
+            ('quiet obsolete alias', quiet(rump), 48000, []),
             ('cry', cry, 16000, ['cry']),
             ('quiet cry', quiet(cry), 44100, ['cry']),
             ('cry then fly', cry+array('h', [0])*3200+clips['fly'], 16000, ['cry', 'fly']),
-            ('rump then cry', rump+array('h', [0])*3000+cry, 16000, ['jump', 'cry']),
+            ('jump then cry', clips['jump']+array('h', [0])*3000+cry, 16000, ['jump', 'cry']),
             ('unaddressed cry', _recording(fixtures/'cry_alone.wav'), 16000, []),
             ('negated cry', _recording(fixtures/'not_cry.wav'), 16000, []),
         ]
